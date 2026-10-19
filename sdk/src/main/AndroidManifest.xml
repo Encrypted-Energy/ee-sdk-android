@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The SDK declares no components, no permissions, and no FGS of its own: the
+  host app drives the lifecycle and already holds the scan/location grants.
+  Namespace lives in build.gradle.kts, so this manifest is intentionally bare.
+-->
+<manifest />
