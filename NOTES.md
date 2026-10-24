@@ -1,3 +1,34 @@
+# Build notes
+
+Decisions and caveats, chunk by chunk, for John and future chunks.
+
+## C2: pure core moved from gateway-android 0.6.0
+
+Moved verbatim from `gateway-android` @ cf0dde2 (the shipped 1.3/0.6.0 HEAD),
+tests carried unchanged: `HubblePacketParser` (+`ParsedPacket`), `ScanPolicy`,
+`LocationFix`, `Json`, `PacketJson`, and their five test classes
+(parity-oracle fixtures included). Exactly two deltas vs. the originals,
+verified by diff:
+
+1. Package rename to `com.encryptedenergy.sdk`.
+2. `internal` on every moved top-level type. api-freeze.md says anything
+   outside the frozen surface is internal and may change; the AAR has to
+   enforce that, or a partner compiles against `HubblePacketParser` and the
+   freeze doctrine silently extends to the whole core.
+
+Zero logic drift otherwise — comments, constants, and fixture expectations are
+byte-identical. Harness: 55 tests green (11 C1 + 44 carried).
+
+`UploadPacket` got its own file: in gateway-android it sits at the top of
+`PacketQueue.kt`, but the queue itself is C5 scope. The data class + its kdoc
+moved verbatim; when C5 brings `PacketQueue` over, it comes WITHOUT the data
+class — do not re-copy it.
+
+Deliberately left behind for later chunks: `HeartbeatPayload` (hardcodes
+`WORKER_VERSION = "ee-gateway-android/0.6.0"` — the SDK needs its own worker
+string, which is a C3 decision, not a verbatim move) and `Counters` /
+`EidThrottle` (C3/C5 scope).
+
 # C1 build notes
 
 Decisions and caveats from the C1 scaffold, for John and future chunks.
