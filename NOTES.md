@@ -2,6 +2,59 @@
 
 Decisions and caveats, chunk by chunk, for John and future chunks.
 
+## C3: headless client
+
+The wire layer: `EEClient` (verify/heartbeat/ingest/self-mint), `Counters`,
+`HeartbeatPayload`, `DeviceRollup`, plus two new pure components, `Backoff`
+and `BatchSender`. 114 tests green (59 carried/new on top of C2's 55). C3 is
+spec-driven, NOT verbatim — gateway-android's loops never implemented the
+published contract's 413-split/422-reasons/backoff, so those are new code
+against ee-web's actual controller + /docs page (verified in source 10/24).
+
+Verbatim moves (package + `internal` only): `Counters` + test, `DeviceRollup`
++ test.
+
+Adapted from gateway-android @ cf0dde2:
+
+- `EEClient` — the app's claim flow (`claim()`, `ClaimResult`, `mapClaim`) is
+  REMOVED: a fleet SDK has no end user to attach; the partner org already
+  owns every gateway. If a future product wants claims-from-SDK, port it back
+  from gateway-android, including the 401-body split (invalid_credentials vs
+  invalid_token). Other deltas: User-Agent prefix `ee-sdk-android`;
+  `Result.Ok` gains `disable` (heartbeat C9 kill switch — parsed here,
+  ACTED ON in C6) and `Result.Terminal` keeps the response body so
+  `BatchSender` can read 422 `invalid_reasons`. New pure mappers
+  `parseDisable` / `parseInvalidReasons` follow the parseBountyEarned
+  pattern: malformed input is the safe default (false / empty) — a parse
+  failure must never pause a fleet or crash an upload pass.
+- `HeartbeatPayload` — `worker_version` is now `ee-sdk-android/<version>`
+  via `SdkVersion.STRING` (new file), the single version source that also
+  feeds `EEGateway.VERSION`. NOTE: `EEGateway.kt` now initializes its frozen
+  `VERSION` const from `SdkVersion.STRING` — valid Kotlin (const-from-const)
+  but outside the harness's compile set; John's Studio build is the check.
+  Fleet telemetry showing a distinct worker string is deliberate: ops can
+  tell SDK traffic from the first-party app, and the value doesn't lie about
+  which codebase produced it.
+
+New, spec-driven (tests pin every branch):
+
+- `BatchSender` — the published ingest contract: pre-chunks to 500, 413
+  halves-and-resends (size-1 413 drops: unsplittable), 422 drops the chunk
+  and surfaces `invalid_reasons`, other non-401 4xx drops, transient/401
+  stops the pass and returns everything undecided for requeue in original
+  order. Pure: the wire call is injected. C5's upload loop wires it to
+  `EEClient.ingest` + `PacketQueue`; pacing/requeue stays the loop's job.
+- `Backoff` — exponential, equal-jitter (delay uniform in [cap/2, cap]),
+  base 2 s, ceiling 10 min, seedable `java.util.Random` so tests are
+  deterministic. For the self-mint 503/429 path (300/hr global cap) and
+  dead-network verify retries. Computes delays only — the caller owns the
+  clock and the sleep, which is why it unit-tests without time.
+
+Still deferred: verify-before-persist ORCHESTRATION (needs TokenStore — C4;
+the client-side hook, `verify(tokenOverride)`, is ready), heartbeat/upload
+loops + threading (C5), `disable` behavior + crash isolation at the facade
+(C6).
+
 ## C2: pure core moved from gateway-android 0.6.0
 
 Moved verbatim from `gateway-android` @ cf0dde2 (the shipped 1.3/0.6.0 HEAD),

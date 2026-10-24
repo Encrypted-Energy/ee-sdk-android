@@ -42,7 +42,7 @@ import android.os.Looper
 object EEGateway {
 
     /** SDK version, matching the published artifact (`com.encryptedenergy:gateway-sdk`). */
-    const val VERSION = "0.1.0"
+    const val VERSION = SdkVersion.STRING
 
     private val lock = Any()
     private val mainHandler = Handler(Looper.getMainLooper())
