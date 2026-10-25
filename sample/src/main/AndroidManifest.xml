@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The reference host manifest (plan §5 C7): everything a partner app must
+  declare, nothing it mustn't. The SDK's own manifest is bare on purpose —
+  these lines are the host's responsibility, and the C10 guide quotes this
+  file verbatim.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!--
+      BLUETOOTH_SCAN deliberately does NOT assert neverForLocation: relayed
+      packets carry location, and we declare that honestly (store review
+      depends on it). ACCESS_FINE_LOCATION is required on every API level
+      for scan results to flow; COARSE alongside gives the user the
+      "approximate" choice on 31+ without breaking the grant flow.
+    -->
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- Legacy Bluetooth grants cover API 26-30; BLUETOOTH_SCAN covers 31+. -->
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+
+    <!-- The host owns the FGS (the SDK never starts one, plan §3). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <!-- API 33+: without it the FGS notification is hidden (service still runs). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <application android:label="EE SDK Sample">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!--
+          location type: packets are location-stamped, and it's the type
+          whose while-in-use access keeps GPS flowing from an FGS.
+          connectedDevice: the BLE scan. GatewayService picks the runtime
+          subset it actually qualifies for on API 29+.
+        -->
+        <service
+            android:name=".GatewayService"
+            android:exported="false"
+            android:foregroundServiceType="location|connectedDevice" />
+    </application>
+</manifest>

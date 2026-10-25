@@ -24,3 +24,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "ee-sdk-android"
 include(":sdk")
+include(":sample")

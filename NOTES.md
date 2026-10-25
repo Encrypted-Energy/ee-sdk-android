@@ -2,6 +2,52 @@
 
 Decisions and caveats, chunk by chunk, for John and future chunks.
 
+## C7: sample host app (minimal, per John 10/25)
+
+New `:sample` module — a one-screen test harness, deliberately NOT a
+product: paste a token (from the C8 org-API curl), Start/Stop, live status
+via EEListener. 173 tests unchanged; the harness grew a stage.
+
+- **Zero dependencies beyond `project(":sdk")`** — no androidx, no Compose,
+  no resources (programmatic views, `android.R.drawable` notification icon).
+  That's on purpose twice over: the module doubles as proof the SDK imposes
+  no transitive baggage, and it keeps the whole app inside the stub-compile
+  set. Plain `android.app.Activity`, `Notification.Builder` (API 26+ form).
+- **New harness stage 1b:** the sample compiles as a SEPARATE kotlinc module
+  against the SDK's class output — `internal` is invisible across that
+  boundary, so this pass fails if the frozen public surface alone can't
+  support a real integration. It passes: EEGateway/EEConfig/EEStatus/
+  EEListener were enough, no surface additions needed.
+- **The reference patterns the C10 guide will quote:**
+  - Manifest: BLUETOOTH_SCAN *without* neverForLocation (honest location
+    declaration — store review depends on it), FINE+COARSE location, legacy
+    BT grants maxSdkVersion=30, FGS + FOREGROUND_SERVICE_LOCATION +
+    _CONNECTED_DEVICE, POST_NOTIFICATIONS, `foregroundServiceType=
+    "location|connectedDevice"` on the service.
+  - GatewayService: configure() in onStartCommand (NOT only the Activity —
+    a START_STICKY restart after process death reaches the service with no
+    UI having run; configure is idempotent so the double call is free),
+    startForeground with the runtime-qualified type subset (location always
+    — the Activity gates service start on the fine-location grant, API 34
+    throws otherwise; connectedDevice OR'd in only once BLUETOOTH_SCAN is
+    granted, 34 enforces that too), EEGateway.stop() in onDestroy.
+  - MainActivity: the host-owns-permissions flow. Fine location denied →
+    no FGS (API 34 constraint), message shown. Scan denied but location
+    granted → service starts and the SDK demos AWAITING_PERMISSIONS → grants
+    later → RUNNING by itself.
+- Sample token storage is plain SharedPreferences — it's the TEXT FIELD's
+  persistence, not the token store; the SDK keeps its own verified copy in
+  the Keystore-sealed TokenStore regardless.
+- Gradle: `com.android.application` added to the version catalog;
+  settings includes `:sample`. App targetSdk = 36 (the library module still
+  deliberately sets none).
+
+C8 runbook for John: org-API curl → one gateway token; Studio: run `:sample`
+on the phone; paste token, Start, grant prompts; expect state RUNNING,
+gateway id after the first heartbeat, forwarded counters climbing against
+prod. Pass = heartbeats + accepted batches under your org, zero EE creds in
+the APK (the token was pasted at runtime, never compiled in).
+
 ## C6: guardrails — the chunk that makes it an SDK
 
 173 tests green. No public-surface change; api-freeze.md untouched (PAUSED_
