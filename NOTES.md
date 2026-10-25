@@ -2,6 +2,43 @@
 
 Decisions and caveats, chunk by chunk, for John and future chunks.
 
+## C4: TokenStore + verify-before-persist
+
+128 tests green. Three files:
+
+- `TokenStore` (android-bound, outside the harness — Studio/C8 verifies the
+  compile, on-device dogfood verifies Keystore behavior): ported from
+  gateway-android 0.6.0 with the claim-state block removed and every name
+  SDK-namespaced — prefs file `com.encryptedenergy.sdk.store`, Keystore alias
+  `com.encryptedenergy.sdk.token_key`. The app's generic names
+  (`ee_gateway` / `ee_token_key`) are left for the host: the Keystore alias
+  namespace is app-wide, so an SDK squatting generic names could collide with
+  the host's own keys (or with the first-party app's, if the two codebases
+  ever share a process). Also stores the self-mint gateway name (plain text —
+  display label, not a secret) so it resets together with the token in
+  `clear()`.
+- `TokenCrypto` (pure, harness-tested): the AES-GCM seal/open split out of
+  TokenStore so the crypto rules are JVM-pinned — fresh IV per seal, and
+  wrong-key / tampered-ciphertext / corrupt-prefs ALL read as null ("no token
+  stored" = the app's signed-out semantics). Uses java.util.Base64, not
+  android.util (API 26+, our minSdk floor), which is what keeps the file in
+  the harness compile set.
+- `TokenProvision` (pure, harness-tested): the persistence invariant —
+  NOTHING persists until the server said yes. `injectToken` runs
+  verify-before-persist (verify sees the INJECTED token via
+  `verify(tokenOverride)`, never the stored one); Terminal 4xx on verify maps
+  to Rejected, not Retry — never persist on a guess. `selfMint` persists
+  key+name only on Minted; the mint response needs no verify round-trip (the
+  server that just created the key is the server that vouched for it).
+  Transient outcomes persist nothing and the caller retries with Backoff —
+  the previously stored token stays authoritative. C6 wires these to the real
+  EEClient/TokenStore and maps outcomes onto EEState.
+
+Version-string caveat for C10: `sdk/build.gradle.kts` hardcodes `0.1.0` in
+two places (module version + publication) that Gradle can't read from
+`SdkVersion.kt`. Release checklist must bump all three together — worth a
+one-line grep check in the C10 publish steps.
+
 ## C3: headless client
 
 The wire layer: `EEClient` (verify/heartbeat/ingest/self-mint), `Counters`,
