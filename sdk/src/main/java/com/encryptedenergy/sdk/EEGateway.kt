@@ -22,19 +22,22 @@ import android.os.Looper
  *    [status], it never propagates an exception into the host app.
  *  - **Never prompts for permissions.** The SDK is dormant without the host's
  *    scan/location grants. [start] with grants missing lands in
- *    [EEState.AWAITING_PERMISSIONS]; it does not request anything. The host
- *    app owns the permission UX, because fleet apps already hold the grants.
+ *    [EEState.AWAITING_PERMISSIONS]; it does not request anything, and it
+ *    advances to [EEState.RUNNING] on its own once the host obtains the
+ *    grants. The host app owns the permission UX, because fleet apps already
+ *    hold the grants.
  *  - **No foreground service of its own.** The host drives the lifecycle; the
  *    reference FGS ships in the sample app, not here.
  *  - **[configure] is idempotent** and holds only `applicationContext`, never
- *    an Activity, so it can't leak a screen.
+ *    an Activity, so it can't leak a screen. A changed config applies the
+ *    next time the gateway is started from a non-running state; it never
+ *    regresses a running gateway.
  *  - **[start]/[stop] are idempotent and main-thread safe.** Call them from
  *    the host's service lifecycle as often as you like.
  *  - **Listener callbacks arrive on the main thread and are crash-isolated**
- *    (see [setListener]).
- *  - **The API surface is frozen-additive from C1 forward.** Once a partner
- *    ships, we can never force their app update, so nothing here changes
- *    meaning; we only add. See api-freeze.md.
+ *    (see [setListener]). Counter-only changes are coalesced (≤ ~1/s) so a
+ *    beacon-dense street can't flood the host's main thread; state changes
+ *    ride the same tick and are never dropped.
  *
  * Thread-safety: all state transitions are serialized on a single lock, so the
  * facade is safe to call from any thread even though callbacks land on main.
@@ -53,6 +56,10 @@ object EEGateway {
     private var config: EEConfig? = null
     private var listener: EEListener? = null
     private var current = EEStatus(state = EEState.UNCONFIGURED)
+    private var engine: Engine? = null
+    /** The config [engine] was built with — a later configure() may differ. */
+    private var engineConfig: EEConfig? = null
+    private var refreshPending = false
 
     /**
      * Store the [config] and the host's application context, then move to
@@ -64,12 +71,17 @@ object EEGateway {
      */
     @JvmStatic
     fun configure(context: Context, config: EEConfig) {
-        synchronized(lock) {
-            appContext = context.applicationContext
-            this.config = config
-            if (current.state == EEState.UNCONFIGURED) {
-                transition(current.copy(state = EEState.READY))
+        try {
+            synchronized(lock) {
+                appContext = context.applicationContext
+                this.config = config
+                if (current.state == EEState.UNCONFIGURED) {
+                    transition(current.copy(state = EEState.READY))
+                }
             }
+        } catch (_: Throwable) {
+            // Never throws (plan §3). C6 adds the systematic isolation sweep;
+            // this guard honors the contract meanwhile.
         }
     }
 
@@ -77,20 +89,44 @@ object EEGateway {
      * Begin (or resume) the gateway from the host's service lifecycle.
      * Idempotent and main-thread safe. A no-op if not yet configured.
      *
-     * The permission-dormancy gate ([EEState.AWAITING_PERMISSIONS]) and the
-     * real scan/upload pipeline land in later chunks (plan §5, C5); in this
-     * scaffold [start] flips the state to [EEState.RUNNING].
+     * With the host's scan/location grants present this lands in
+     * [EEState.RUNNING]; without them, [EEState.AWAITING_PERMISSIONS] — the
+     * pipeline stays dormant, heartbeats still flow (so the fleet dashboard
+     * can see the phone), and the SDK advances by itself when the grants
+     * appear.
      *
      * Never throws; never prompts for permissions.
      */
     @JvmStatic
     fun start() {
-        synchronized(lock) {
-            when (current.state) {
-                EEState.UNCONFIGURED -> return   // nothing to start; not an error
-                EEState.RUNNING -> return        // idempotent
-                else -> transition(current.copy(state = EEState.RUNNING))
+        try {
+            synchronized(lock) {
+                val context = appContext ?: return   // nothing to start; not an error
+                val cfg = config ?: return
+                if (current.state == EEState.RUNNING ||
+                    current.state == EEState.AWAITING_PERMISSIONS
+                ) return                             // idempotent
+
+                // A config change (new token, new base URL) takes effect
+                // here, from a non-running state: tear down and rebuild.
+                if (engine != null && engineConfig != cfg) {
+                    engine?.stop()
+                    engine = null
+                }
+                val e = engine ?: Engine(context, cfg, ::engineChanged).also {
+                    engine = it
+                    engineConfig = cfg
+                }
+                e.start()
+                transition(
+                    composeStatus(
+                        if (e.permissionsGranted()) EEState.RUNNING
+                        else EEState.AWAITING_PERMISSIONS
+                    )
+                )
             }
+        } catch (_: Throwable) {
+            // Never throws (plan §3).
         }
     }
 
@@ -102,17 +138,24 @@ object EEGateway {
      */
     @JvmStatic
     fun stop() {
-        synchronized(lock) {
-            when (current.state) {
-                EEState.UNCONFIGURED, EEState.STOPPED -> return
-                else -> transition(current.copy(state = EEState.STOPPED))
+        try {
+            synchronized(lock) {
+                when (current.state) {
+                    EEState.UNCONFIGURED, EEState.STOPPED -> return
+                    else -> {
+                        engine?.stop()
+                        transition(composeStatus(EEState.STOPPED))
+                    }
+                }
             }
+        } catch (_: Throwable) {
+            // Never throws (plan §3).
         }
     }
 
     /** The current [EEStatus] snapshot. Never throws. */
     @JvmStatic
-    fun status(): EEStatus = synchronized(lock) { current }
+    fun status(): EEStatus = synchronized(lock) { composeStatus(current.state) }
 
     /**
      * Register (or clear, with null) the status [listener]. Callbacks always
@@ -126,12 +169,58 @@ object EEGateway {
         }
     }
 
+    /** Live counters from the engine grafted onto [state]. Call under [lock]. */
+    private fun composeStatus(state: EEState): EEStatus {
+        val e = engine ?: return current.copy(state = state)
+        return current.copy(
+            state = state,
+            pingsHeard = e.pingsHeard,
+            packetsForwarded = e.packetsForwarded,
+            queueDepth = e.queueDepth(),
+            lastHeartbeatAt = e.lastHeartbeatAt,
+        )
+    }
+
+    /**
+     * Engine change feed — potentially once per heard advertisement, from
+     * main or a loop executor. Coalesced to one main-thread refresh per
+     * [REFRESH_COALESCE_MILLIS]: dense traffic becomes at most ~1 listener
+     * callback/s, and the dormancy-gate flip (AWAITING_PERMISSIONS ↔
+     * RUNNING) rides the next tick, never lost because [transition] compares
+     * snapshots.
+     */
+    private fun engineChanged() {
+        synchronized(lock) {
+            if (refreshPending) return
+            refreshPending = true
+        }
+        mainHandler.postDelayed({
+            synchronized(lock) {
+                refreshPending = false
+                refreshLocked()
+            }
+        }, REFRESH_COALESCE_MILLIS)
+    }
+
+    /** Recompute status from the engine and notify if it changed. Under [lock]. */
+    private fun refreshLocked() {
+        val e = engine ?: return
+        val state = when {
+            !e.started -> current.state          // READY or STOPPED: host-driven
+            e.scanning -> EEState.RUNNING
+            else -> EEState.AWAITING_PERMISSIONS
+        }
+        transition(composeStatus(state))
+    }
+
     /**
      * Commit a new status and notify the listener on the main thread. Called
      * only while holding [lock]; the notification itself is posted, so it never
-     * runs under the lock and a slow listener can't stall a caller.
+     * runs under the lock and a slow listener can't stall a caller. A no-op
+     * when nothing changed, so coalesced refreshes don't echo.
      */
     private fun transition(next: EEStatus) {
+        if (next == current) return
         current = next
         val l = listener ?: return
         mainHandler.post {
@@ -142,4 +231,6 @@ object EEGateway {
             }
         }
     }
+
+    private const val REFRESH_COALESCE_MILLIS = 1_000L
 }

@@ -2,6 +2,75 @@
 
 Decisions and caveats, chunk by chunk, for John and future chunks.
 
+## C5: pipeline behind the facade
+
+162 tests green, and a NEW harness stage: every main source — android-bound
+files included — now full-compiles against hand-written android stubs
+(`/home/clawuser/toolchain/android-stubs/`, built this chunk). Typos and
+signature drift in EEGateway/Engine/BleScanner/LocationProvider no longer
+wait for the C8 Studio build to surface; Studio remains the authority on
+real framework behavior.
+
+Verbatim moves from gateway-android @ cf0dde2 (package + `internal` only):
+`PacketQueue` (WITHOUT UploadPacket, per the C2 note), `QueueStore`,
+`EidThrottle`, `BleScanner` (diff-verified: two-line delta), plus
+PacketQueueTest/QueueStoreTest/EidThrottleTest carried unchanged.
+
+Adapted:
+
+- `ScanPermissions` — `Context.checkSelfPermission` replaces androidx
+  ContextCompat (same framework call on minSdk 26+); keeps the AAR at zero
+  runtime deps. Still check-only: the SDK never requests.
+- `LocationProvider` — fixed-location override NOT ported, deliberately: it's
+  a first-party operator feature ("this gateway is HERE"), and on a fleet SDK
+  a partner-settable static location is a coverage-spoofing lever. 25 s
+  freshness gate, null-island rejection, seed-from-cache all intact.
+- `UploadLoop` — now android-free (no Handler/Looper; callbacks fire on the
+  loop executor, the engine marshals). The tick drains ONE server batch and
+  delegates the contract to C3's BatchSender; requeue order + forwarded
+  counters are the loop's job. Harness-tested via tick() with an injected
+  wire function (8 tests).
+- `HeartbeatLoop` — android-free, same shape. **Cadence is 5 min, not the
+  app's 60 s** — the architecture diagram pins it and partner battery budget
+  is a contract (§6 risk 3); a test pins INTERVAL_SECONDS=300. Snapshot/
+  restore-on-transient semantics carried; a throwing wire call maps to
+  Transient so scheduleWithFixedDelay can never die (8 tests).
+
+New: `Engine` — GatewayEngine minus the entire product surface (no Compose
+state, notifications, claim lifecycle, DiagLog, fixed location), plus the
+permission-dormancy gate the app never needed:
+
+- start() always runs heartbeat/upload loops (ops can SEE a dormant fleet
+  phone: gps_status `dongle_missing`, status `backgrounded`); radio+GPS only
+  start once grants exist. Missing grants → 5 s checkSelfPermission poll;
+  grant appears → pipeline starts itself (AWAITING_PERMISSIONS → RUNNING, no
+  host call). Mid-run revocation (scanner UNAUTHORIZED) tears the pipeline
+  down and returns to the poll — honest in both directions. The synchronous
+  revocation race (grant pulled between check and radio call) is covered:
+  `scanning` flips true BEFORE scanner.start() so the teardown handler acts,
+  and startPipeline aborts if it fired.
+- Queue file is SDK-namespaced (`com.encryptedenergy.sdk.packet-queue.eeq`)
+  per the C4 rule. Loop threads are daemons — the SDK must never block a
+  host process exit.
+- Heartbeat `disable` is PARSED and stored (`remoteDisable`) but not yet
+  acted on — C6 maps it to PAUSED_REMOTE.
+
+EEGateway now drives the real engine; frozen surface untouched. Listener
+callbacks are COALESCED (≤ ~1/s): a beacon-dense street fires onHeard per
+advertisement, and posting each to the host's main thread is exactly the ANR
+risk §6.3 warns about. State flips ride the same tick (never dropped —
+transition compares snapshots). A changed config applies on the next start()
+from a non-running state (engine rebuild; disk queue survives, process-local
+counters reset); it never regresses a running gateway. Public methods got
+interim catch-Throwable guards to honor "never throws" — C6 does the
+systematic isolation sweep.
+
+Still deferred: token provisioning orchestration at the facade (C4's
+TokenProvision wired to start(): verify-before-persist for GatewayToken,
+mint-on-first-start for SelfMint) — C6. Until then a phone with no stored
+token heartbeats Unauthorized and requeues packets, which is safe. Also C6:
+`disable`/PAUSED_REMOTE, gatewayPublicId in EEStatus.
+
 ## C4: TokenStore + verify-before-persist
 
 128 tests green. Three files:
