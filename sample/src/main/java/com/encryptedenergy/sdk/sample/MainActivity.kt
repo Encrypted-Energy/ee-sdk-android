@@ -105,9 +105,14 @@ class MainActivity : Activity() {
         grantResults: IntArray,
     ) {
         if (requestCode != PERMISSION_REQUEST) return
-        if (granted(Manifest.permission.ACCESS_FINE_LOCATION)) {
-            // Scan may still be denied: the service starts, and the SDK
-            // sits in AWAITING_PERMISSIONS until the grant appears.
+        if (granted(Manifest.permission.ACCESS_FINE_LOCATION) ||
+            granted(Manifest.permission.ACCESS_COARSE_LOCATION)
+        ) {
+            // Coarse alone satisfies the FGS location type (the API 34
+            // prerequisite), so "approximate location" still starts the
+            // service. Scanning itself needs FINE + BLUETOOTH_SCAN — until
+            // those arrive the SDK sits in AWAITING_PERMISSIONS, which is
+            // exactly the dormancy behavior worth seeing in the harness.
             startGatewayService()
         } else {
             statusView.text =

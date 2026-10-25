@@ -2,6 +2,52 @@
 
 Decisions and caveats, chunk by chunk, for John and future chunks.
 
+## Arc review (post-C7, 10/25): findings and fixes
+
+Full C1–C7 pass against the plan's contracts (never-throws, never-prompts,
+no-FGS, zero deps, frozen surface, battery/ANR honesty), threading, wire
+semantics vs ee-web source, and resource hygiene. Five findings fixed:
+
+1. **Harness masked test-compile failures** (inherited from runtests.sh):
+   `kotlinc … | grep -v warning || true` swallowed non-zero exits, and
+   JUnitCore with an empty class list exits 0 — a broken test source set
+   could print "OK (0 tests)" and pass. Fixed: no pipe (-nowarn already
+   covers warnings), plus a hard failure when zero test classes are
+   discovered. Verified both directions: an injected broken test now exits 1;
+   clean tree back to 173 green.
+2. **Facade guards were silent.** "Never throws" is the contract, but a
+   swallowed Throwable a partner can't see in logcat is undiagnosable-by-
+   design. Every facade catch now logs `Log.w("EEGateway", …)`.
+3. **Engine ctor did synchronous disk I/O** (queue restore) on the caller's
+   thread — which is the host's main thread on a typical configure()+start().
+   An ANR seed and a StrictMode red flag in every partner debug build, i.e.
+   exactly the first-impression failure §6.3 warns about. Restore now runs on
+   a one-shot daemon thread; persistence arms after restore completes, and
+   packets heard in the gap persist on the next queue change (≤10 s). The
+   same pattern in gateway-android's GatewayEngine is the app's business —
+   the SDK holds a higher bar. PacketQueue.onChange became @Volatile for the
+   cross-thread arm (documented delta from verbatim).
+4. **Provisioning executor idled a thread until stop()** after its one-shot
+   task finished. Now self-shuts-down when the task completes.
+5. **Sample bricked on "approximate location"**: coarse-only grant satisfies
+   the API 34 FGS location-type prerequisite, but the sample refused to start
+   the service with a misleading message. Now fine-OR-coarse starts the FGS;
+   scanning stays dormant (SDK in AWAITING_PERMISSIONS) until FINE +
+   BLUETOOTH_SCAN arrive — the honest dormancy demo.
+
+Reviewed and ACCEPTED as-is (documented where they live):
+
+- ScanPolicy mode read from the heartbeat thread is unsynchronized — benign
+  telemetry-only race, byte-identical to the shipped app (comment in Engine).
+- Config-change engine rebuild resets process-lifetime counters and has a
+  theoretical queue-persist race — rare path, noted in the C5 section.
+- Token rotation to a rejected token while the old one is revoked leaves the
+  phone dark until the next start — C6 section.
+- Listener state flips ride the ≤1 s coalescing tick; host-initiated
+  transitions (start/stop) notify immediately.
+- DeviceRollup fully @Synchronized, Counters snapshot/restore atomic,
+  BatchSender 413-split order, Backoff overflow clamp: all re-verified sound.
+
 ## C7: sample host app (minimal, per John 10/25)
 
 New `:sample` module — a one-screen test harness, deliberately NOT a

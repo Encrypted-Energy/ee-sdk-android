@@ -145,10 +145,22 @@ internal class Engine(
     }
 
     init {
-        // Restore packets that survived process death, THEN arm persistence
-        // (loading through add() must not trigger a rewrite per line).
-        store.load().forEach { queue.add(it) }
-        queue.onChange = { store.schedulePersist(queue) }
+        // Restore packets that survived process death — OFF the construction
+        // thread: configure()/start() may run on the host's main thread, and
+        // a disk read there is an ANR seed (and a StrictMode violation in
+        // every partner's debug build). Persistence arms only after the
+        // restore, so loading through add() can't trigger a rewrite per
+        // line; anything heard in the gap persists on the next queue change
+        // (the 10 s upload tick at the latest). Restored packets may land
+        // behind freshly heard ones — ordering across a process death has no
+        // meaning anyway.
+        Thread({
+            guard {
+                store.load().forEach { queue.add(it) }
+                queue.onChange = { store.schedulePersist(queue) }
+                onChanged()
+            }
+        }, "ee-sdk-restore").apply { isDaemon = true }.start()
 
         locationProvider.onFix = { fix ->
             scanPolicy.onFix(fix)
@@ -258,17 +270,22 @@ internal class Engine(
         provisionExecutor = executor
         executor.execute {
             guard {
-                if (!needsProvisioning()) return@guard
-                val result = ProvisionRunner(::provisionAttempt, Backoff(), Thread::sleep)
-                    .run({ started })
-                if (result == ProvisionRunner.Result.PROVISIONED) {
-                    // Immediate hello: telemetry, `disable`, and public id
-                    // land now, not one 5-min cadence later. tick() runs on
-                    // this thread and is guarded inside.
-                    heartbeatLoop.tick()
+                if (needsProvisioning()) {
+                    val result = ProvisionRunner(::provisionAttempt, Backoff(), Thread::sleep)
+                        .run({ started })
+                    if (result == ProvisionRunner.Result.PROVISIONED) {
+                        // Immediate hello: telemetry, `disable`, and public id
+                        // land now, not one 5-min cadence later. tick() runs on
+                        // this thread and is guarded inside.
+                        heartbeatLoop.tick()
+                    }
+                    onChanged()
                 }
-                onChanged()
             }
+            // One-shot work is done; don't idle a thread on a partner's
+            // phone until stop(). Self-shutdown lets this task finish and
+            // makes stop()'s shutdownNow a no-op.
+            executor.shutdown()
         }
     }
 

@@ -14,6 +14,10 @@ internal class PacketQueue(private val capacity: Int = DEFAULT_CAPACITY) {
 
     private val deque = ArrayDeque<UploadPacket>()
 
+    // @Volatile is an SDK delta from gateway-android: the engine arms this
+    // from the async restore thread (C7 review) while scan callbacks mutate
+    // the queue from main — the write must be visible without a monitor.
+    @Volatile
     var onChange: (() -> Unit)? = null
 
     @Synchronized

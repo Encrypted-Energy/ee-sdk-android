@@ -3,6 +3,7 @@ package com.encryptedenergy.sdk
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 
 /**
  * The entire public surface of the EE gateway SDK (plan §1, §3). A partner app
@@ -79,9 +80,10 @@ object EEGateway {
                     transition(current.copy(state = EEState.READY))
                 }
             }
-        } catch (_: Throwable) {
-            // Never throws (plan §3). C6 adds the systematic isolation sweep;
-            // this guard honors the contract meanwhile.
+        } catch (t: Throwable) {
+            // Never throws (plan §3) — but never silently either: a swallowed
+            // failure a partner can't see in logcat is undiagnosable.
+            Log.w(TAG, "configure failed", t)
         }
     }
 
@@ -129,8 +131,9 @@ object EEGateway {
                     )
                 )
             }
-        } catch (_: Throwable) {
-            // Never throws (plan §3).
+        } catch (t: Throwable) {
+            // Never throws (plan §3); logged so the failure is visible.
+            Log.w(TAG, "start failed", t)
         }
     }
 
@@ -152,8 +155,9 @@ object EEGateway {
                     }
                 }
             }
-        } catch (_: Throwable) {
-            // Never throws (plan §3).
+        } catch (t: Throwable) {
+            // Never throws (plan §3); logged so the failure is visible.
+            Log.w(TAG, "stop failed", t)
         }
     }
 
@@ -205,9 +209,10 @@ object EEGateway {
                     refreshPending = false
                     refreshLocked()
                 }
-            } catch (_: Throwable) {
+            } catch (t: Throwable) {
                 // Posted work runs outside the public-method guards; it gets
                 // its own (plan §3: an SDK bug never crashes the host).
+                Log.w(TAG, "status refresh failed", t)
             }
         }, REFRESH_COALESCE_MILLIS)
     }
@@ -244,4 +249,5 @@ object EEGateway {
     }
 
     private const val REFRESH_COALESCE_MILLIS = 1_000L
+    private const val TAG = "EEGateway"
 }
