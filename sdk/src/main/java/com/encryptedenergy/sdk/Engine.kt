@@ -9,16 +9,20 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.util.Log
 import java.io.File
 import java.util.Base64
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 
 /**
- * The pipeline owner behind [EEGateway] (plan §5 C5): scanner, location,
- * queue, heartbeat, upload. This is gateway-android's GatewayEngine with the
- * entire product surface removed — no UI state, no notifications, no claim
- * lifecycle, no diagnostics log, no fixed-location override — and one thing
- * added that the first-party app never needed: the permission-dormancy gate.
- * The app ASKS for grants; the SDK only WAITS for them (plan §3).
+ * The pipeline owner behind [EEGateway] (plan §5 C5/C6): scanner, location,
+ * queue, heartbeat, upload, token provisioning. This is gateway-android's
+ * GatewayEngine with the entire product surface removed — no UI state, no
+ * notifications, no claim lifecycle, no diagnostics log, no fixed-location
+ * override — and the SDK-only machinery added: the permission-dormancy gate
+ * (the app ASKS for grants; the SDK only WAITS for them, plan §3), the C9
+ * remote kill switch, and provisioning orchestration.
  *
  * ## Dormancy gate
  * [start] with grants missing runs the heartbeat/upload loops (ops can see a
@@ -30,22 +34,44 @@ import java.util.Base64
  * UNAUTHORIZED) tears the pipeline down and returns to the same poll, so the
  * state machine is honest in both directions.
  *
+ * ## Remote kill switch (C9/C6)
+ * A heartbeat 2xx with `"disable": true` → scanning and upload stop,
+ * heartbeats CONTINUE (they're how the fleet re-enables), facade shows
+ * [EEState.PAUSED_REMOTE]. The flag clearing resumes everything, grants
+ * permitting. Absent means enabled; a parse failure must never pause a fleet
+ * (EEClient.parseDisable defaults false).
+ *
+ * ## Provisioning (C6, the C4 invariants wired live)
+ * On every start, a daemon thread reconciles the stored token with the
+ * config: [EEConfig.GatewayToken] whose token differs from the store runs
+ * verify-before-persist; [EEConfig.SelfMint] with no stored token mints.
+ * Transient failures retry on [Backoff]; a server rejection PARKS until the
+ * next start (see [ProvisionRunner]). The loops only ever read through the
+ * store, so until the server says yes they run against the previous token —
+ * or none, where upload requeues and heartbeat goes Unauthorized, both safe.
+ * On success the provisioning thread fires one immediate heartbeat, so
+ * telemetry, `disable`, and the gateway public id land seconds after the
+ * token does instead of one cadence later.
+ *
  * ## Threading
  * [start]/[stop] may be called from any thread (the facade's contract); all
  * pipeline mutation is posted to the main looper, where the scan and fix
- * callbacks already live. Facade-visible tallies are @Volatile singles-writer
+ * callbacks already live. Facade-visible tallies are @Volatile single-writer
  * fields read through [EEGateway.status] from arbitrary threads. [onChanged]
  * fires (possibly very often — once per heard advertisement) on whatever
  * thread produced the change; the facade coalesces before notifying the
- * host's listener.
+ * host's listener. Every runnable that enters the main looper and every
+ * executor task body is wrapped in [guard] — an SDK bug must surface as a
+ * dropped packet and a log line, never as a host crash (C6).
  *
- * Android-bound: outside the JVM harness (verified by review + the C8 Studio
- * build). Everything it composes — queue, store, throttle, loops, policy,
- * batch semantics — is harness-tested on its own.
+ * Android-bound: outside the JVM harness (stub-compiled by runtests-sdk.sh;
+ * the C8 Studio build and on-device dogfood are the real check). Everything
+ * it composes — queue, store, throttle, loops, policy, batch semantics,
+ * provisioning policy — is harness-tested on its own.
  */
 internal class Engine(
     private val context: Context,
-    config: EEConfig,
+    private val config: EEConfig,
     private val onChanged: () -> Unit,
 ) {
 
@@ -62,18 +88,20 @@ internal class Engine(
     private val uploadLoop: UploadLoop
 
     private val main = Handler(Looper.getMainLooper())
+    private var provisionExecutor: ExecutorService? = null
 
     // Facade-visible tallies. Each is written by exactly one thread (main or
     // one loop executor) and read via EEGateway.status() from any thread.
     @Volatile var pingsHeard = 0L; private set
     @Volatile var packetsForwarded = 0L; private set
     @Volatile var lastHeartbeatAt: Long? = null; private set
+    @Volatile var gatewayPublicId: String? = null; private set
     /** Host asked us to run (start() without a matching stop()). */
     @Volatile var started = false; private set
     /** Radio + GPS actually up — false while dormant on missing grants. */
     @Volatile var scanning = false; private set
-    /** Last heartbeat's C9 kill-switch flag. Surfaced here, ACTED ON in C6. */
-    @Volatile var remoteDisable = false; private set
+    /** Server kill switch is ON: pipeline+upload parked, heartbeats flowing. */
+    @Volatile var remotePaused = false; private set
 
     @Volatile private var lastPacketAtMillis: Long? = null
     private val startedElapsed = SystemClock.elapsedRealtime()
@@ -86,7 +114,7 @@ internal class Engine(
     // ACTION_BATTERY_CHANGED is sticky: registerReceiver returns the current
     // status immediately, and this fires on every plug/unplug after that.
     private val batteryReceiver = object : BroadcastReceiver() {
-        override fun onReceive(c: Context?, intent: Intent?) {
+        override fun onReceive(c: Context?, intent: Intent?) = guard {
             if (scanPolicy.onCharging(isCharging(intent))) retuneScanMode()
         }
     }
@@ -95,18 +123,18 @@ internal class Engine(
     // dead still, fixes may keep arriving (cadence is not adapted), but if
     // the provider goes quiet this tick still flips the mode on time.
     private val retuneTick = object : Runnable {
-        override fun run() {
-            if (!scanning) return
+        override fun run() = guard {
+            if (!scanning) return@guard
             retuneScanMode()
             main.postDelayed(this, RETUNE_INTERVAL_MILLIS)
         }
     }
 
     // The dormancy gate's clock: cheap checkSelfPermission calls, main
-    // looper, only while started-but-dormant.
+    // looper, only while started-but-dormant (and not remote-paused).
     private val permissionPoll = object : Runnable {
-        override fun run() {
-            if (!started || scanning) return
+        override fun run() = guard {
+            if (!started || scanning || remotePaused) return@guard
             if (permissionsGranted()) {
                 startPipeline()
                 onChanged()
@@ -174,7 +202,11 @@ internal class Engine(
         heartbeatLoop = HeartbeatLoop(client::heartbeat, counters, ::runtimeInfo) { result ->
             if (result is EEClient.Result.Ok) {
                 lastHeartbeatAt = System.currentTimeMillis()
-                remoteDisable = result.disable
+                result.publicId?.let { gatewayPublicId = it }
+                // The kill switch acts on the main looper with the rest of
+                // the pipeline lifecycle (C6).
+                val disable = result.disable
+                main.post { guard { applyRemoteDisable(disable) } }
             }
             onChanged()
         }
@@ -186,39 +218,130 @@ internal class Engine(
 
     /**
      * Begin: loops immediately (heartbeats make dormant phones visible to
-     * ops), pipeline when the grants allow. Idempotent, any thread.
+     * ops), provisioning reconciliation in the background, pipeline when the
+     * grants allow. Idempotent, any thread.
      */
     fun start() {
         if (started) return
         started = true
         heartbeatLoop.start()
-        uploadLoop.start()
-        main.post {
-            if (!started || scanning) return@post
-            if (permissionsGranted()) {
-                startPipeline()
-                onChanged()
-            } else {
-                main.postDelayed(permissionPoll, PERMISSION_POLL_MILLIS)
-            }
-        }
+        if (!remotePaused) uploadLoop.start()
+        provisionIfNeeded()
+        main.post { guard { maybeStartPipeline() } }
     }
 
     /** Stop everything. Idempotent, any thread. */
     fun stop() {
         if (!started) return
         started = false
+        provisionExecutor?.shutdownNow()   // interrupts a backoff sleep
+        provisionExecutor = null
         heartbeatLoop.stop()
         uploadLoop.stop()
         main.post {
+            guard {
+                main.removeCallbacks(permissionPoll)
+                stopPipeline()
+            }
+        }
+    }
+
+    /**
+     * Reconcile the stored token with the config on a daemon thread — C4's
+     * verify-before-persist / mint-persists-only-on-yes, retried through
+     * [ProvisionRunner]. No-op when the store already matches.
+     */
+    private fun provisionIfNeeded() {
+        val executor = Executors.newSingleThreadExecutor { r ->
+            Thread(r, "ee-sdk-provision").apply { isDaemon = true }
+        }
+        provisionExecutor = executor
+        executor.execute {
+            guard {
+                if (!needsProvisioning()) return@guard
+                val result = ProvisionRunner(::provisionAttempt, Backoff(), Thread::sleep)
+                    .run({ started })
+                if (result == ProvisionRunner.Result.PROVISIONED) {
+                    // Immediate hello: telemetry, `disable`, and public id
+                    // land now, not one 5-min cadence later. tick() runs on
+                    // this thread and is guarded inside.
+                    heartbeatLoop.tick()
+                }
+                onChanged()
+            }
+        }
+    }
+
+    /** Keystore read — background threads only (provisioning executor). */
+    private fun needsProvisioning(): Boolean = when (config) {
+        is EEConfig.GatewayToken -> tokenStore.load() != config.token
+        is EEConfig.SelfMint -> tokenStore.load() == null
+    }
+
+    private fun provisionAttempt(): ProvisionRunner.Outcome = when (config) {
+        is EEConfig.GatewayToken -> when (
+            TokenProvision.injectToken(
+                config.token,
+                verify = { client.verify(tokenOverride = it) },
+                persist = { tokenStore.save(it) },
+            )
+        ) {
+            is TokenProvision.InjectOutcome.Verified -> ProvisionRunner.Outcome.PROVISIONED
+            is TokenProvision.InjectOutcome.Rejected -> ProvisionRunner.Outcome.REJECTED
+            is TokenProvision.InjectOutcome.Retry -> ProvisionRunner.Outcome.RETRY
+        }
+        is EEConfig.SelfMint -> when (
+            val outcome = TokenProvision.selfMint(
+                config.deviceName ?: Build.MODEL,
+                mint = { EEClient.mintDevice(it, config.baseUrl) },
+                persist = { token, name ->
+                    tokenStore.save(token)
+                    tokenStore.saveGatewayName(name)
+                },
+            )
+        ) {
+            is TokenProvision.MintOutcome.Provisioned -> ProvisionRunner.Outcome.PROVISIONED
+            is TokenProvision.MintOutcome.Rejected -> {
+                Log.w(LOG_TAG, "self-mint rejected: ${outcome.reason}")
+                ProvisionRunner.Outcome.REJECTED
+            }
+            is TokenProvision.MintOutcome.Retry -> ProvisionRunner.Outcome.RETRY
+        }
+    }
+
+    /**
+     * The C9 kill switch, read from every heartbeat 2xx. Main looper only.
+     * ON: pipeline + upload park, heartbeats keep flowing (they're the only
+     * way to learn the flag cleared). OFF: resume what the grants allow.
+     */
+    private fun applyRemoteDisable(disable: Boolean) {
+        if (disable == remotePaused) return
+        remotePaused = disable
+        if (disable) {
             main.removeCallbacks(permissionPoll)
             stopPipeline()
+            uploadLoop.stop()
+        } else if (started) {
+            uploadLoop.start()
+            maybeStartPipeline()
         }
+        onChanged()
+    }
+
+    /** Pipeline if allowed, else dormancy poll. Main looper only. */
+    private fun maybeStartPipeline() {
+        if (!started || scanning || remotePaused) return
+        if (permissionsGranted()) {
+            startPipeline()
+        } else {
+            main.postDelayed(permissionPoll, PERMISSION_POLL_MILLIS)
+        }
+        onChanged()
     }
 
     /** Scanner + location + adaptive-scan machinery. Main looper only. */
     private fun startPipeline() {
-        if (scanning) return
+        if (scanning || remotePaused) return
         scanPolicy.reset(System.currentTimeMillis())
         val sticky = context.registerReceiver(
             batteryReceiver, IntentFilter(Intent.ACTION_BATTERY_CHANGED)
@@ -281,13 +404,27 @@ internal class Engine(
             lastPacketAtMillis = lastPacketAtMillis,
             gpsStatus = locationProvider.status(now),
             lastKnownPositionAtMillis = locationProvider.lastFix()?.capturedAtMillis,
-            // "active" = radio up and earning; a dormant (awaiting-grants)
-            // or stopped SDK reports "backgrounded", matching what the
-            // silent-gateway tooling expects from a phone that isn't scanning.
+            // "active" = radio up and earning; a dormant (awaiting-grants),
+            // remote-paused, or stopped SDK reports "backgrounded", matching
+            // what the silent-gateway tooling expects from a phone that
+            // isn't scanning.
             clientState = if (scanning) "active" else "backgrounded",
             devicesSeen = rollup.toJson(now),
             scanMode = if (scanPolicy.mode(now) == ScanPolicy.Mode.REDUCED) "reduced" else "full",
         )
+    }
+
+    /**
+     * C6 isolation: every runnable entering the main looper and every
+     * executor task body rides through here. An SDK bug becomes a log line,
+     * never a host-app crash.
+     */
+    private inline fun guard(block: () -> Unit) {
+        try {
+            block()
+        } catch (t: Throwable) {
+            Log.w(LOG_TAG, "internal error", t)
+        }
     }
 
     companion object {
@@ -296,5 +433,6 @@ internal class Engine(
         private const val QUEUE_FILE = "com.encryptedenergy.sdk.packet-queue.eeq"
         private const val RETUNE_INTERVAL_MILLIS = 30_000L
         private const val PERMISSION_POLL_MILLIS = 5_000L
+        private const val LOG_TAG = "EEGateway"
     }
 }

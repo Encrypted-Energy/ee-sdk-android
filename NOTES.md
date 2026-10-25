@@ -2,6 +2,62 @@
 
 Decisions and caveats, chunk by chunk, for John and future chunks.
 
+## C6: guardrails — the chunk that makes it an SDK
+
+173 tests green. No public-surface change; api-freeze.md untouched (PAUSED_
+REMOTE semantics were frozen in C1 and are now real).
+
+**Token provisioning wired (C4's invariants go live).** Every engine start
+runs a reconcile on a daemon thread: `GatewayToken` whose token differs from
+the store → verify-before-persist; `SelfMint` with no stored token → mint
+(deviceName ?: Build.MODEL). Transient outcomes retry through Backoff
+(equal-jitter, 10 min cap — respects the 300/hr mint cap); a server REJECTION
+PARKS until the next start(). Parking is deliberate: retrying can't change a
+deliberate "no", and the partner's recovery path is configure(rotated token)
++ start, which re-runs the reconcile. New pure `ProvisionRunner` owns that
+policy (6 tests). On success the provisioning thread fires one immediate
+heartbeat so telemetry/`disable`/public id land seconds after the token, not
+one 5-min cadence later. Until the server says yes, loops run against the
+previous stored token or none — upload requeues, heartbeat goes Unauthorized,
+both safe. Caveat on rotation: if the NEW token is rejected the OLD stored
+token stays authoritative, including when the partner already revoked it —
+the phone goes dark until the next start with a good token. Edge accepted;
+the partner backend that rotated is the party that notices.
+
+**disable → PAUSED_REMOTE.** Heartbeat 2xx with `"disable": true` (read on
+the main looper with the rest of the lifecycle): scanner + GPS + upload loop
+stop, permission poll parks, HEARTBEATS CONTINUE — they're the only way to
+learn the flag cleared. Flag drops → upload + pipeline resume, grants
+permitting. The flag survives stop()/start() in-process (server likely still
+paused; the start-tick heartbeat re-learns either way) and resets on engine
+rebuild. Facade precedence: PAUSED_REMOTE > RUNNING/AWAITING_PERMISSIONS;
+start() while paused is a no-op (already started).
+
+**gatewayPublicId.** Parsed from every heartbeat 2xx body (`gateway.
+public_id` — verified against ee-web controller source; verify echoes it too
+but heartbeat is the one refresh path we need). Malformed/absent → null:
+identity is a nicety, never a failure. Flows to EEStatus.
+
+**Crash-isolation sweep, boundary by boundary:**
+
+- Framework → SDK: BleScanner.onScanResult/onScanFailed and LocationProvider
+  .onLocationChanged now catch Throwable (BleScanner is no longer 2-line
+  verbatim — the guards are deltas 3 and 4, documented here on purpose). An
+  uncaught throw there unwinds into the host's process = the one incident
+  that ends a partner deal (§6.3).
+- Loop executors: UploadLoop/HeartbeatLoop wrap the callback invocation —
+  an uncaught throw cancels scheduleWithFixedDelay PERMANENTLY, and the
+  queue/delta bookkeeping is already committed first (2 tests pin it).
+- Main-looper entries: every posted runnable in Engine rides a `guard {}`
+  (swallow + `Log.w("EEGateway", …)` — the one android.util dependency,
+  framework-only, still zero third-party deps). Facade's coalesced refresh
+  post got its own guard; public methods keep their C5 catch-Throwable.
+
+Still open for later chunks: C7 sample app is the next Neo chunk; C8 is
+John's dogfood gate (Studio compile verifies EEGateway/Engine against real
+android.jar — the stub compile only proves our usage is internally
+consistent).
+
 ## C5: pipeline behind the facade
 
 162 tests green, and a NEW harness stage: every main source — android-bound

@@ -11,6 +11,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.ParcelUuid
+import android.util.Log
 
 /**
  * FCA6 scan loop (plan §2, §4) — Android port of the iOS BLEScanner.
@@ -51,31 +52,42 @@ internal class BleScanner(private val context: Context) {
         get() = (context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter
 
     private val scanCallback = object : ScanCallback() {
+        // Framework -> SDK boundary (C6): an uncaught throw here unwinds
+        // into the host app's process and kills it — the one incident that
+        // ends a partner deal (plan §6.3). Swallow-and-log, never propagate.
         override fun onScanResult(callbackType: Int, result: ScanResult) {
-            val raw = result.scanRecord?.getServiceData(SERVICE_UUID) ?: return
-            val parsed = HubblePacketParser.parse(raw) ?: return
-            val now = System.currentTimeMillis()
-            onHeard?.invoke(parsed, result.rssi, now)
+            try {
+                val raw = result.scanRecord?.getServiceData(SERVICE_UUID) ?: return
+                val parsed = HubblePacketParser.parse(raw) ?: return
+                val now = System.currentTimeMillis()
+                onHeard?.invoke(parsed, result.rssi, now)
 
-            // No EID -> never forwarded: one bad packet 422s the whole batch (§1a).
-            val eid = parsed.eidHex ?: return
-            if (!throttle.shouldForward(eid, now)) return
-            onPacket?.invoke(parsed, result.rssi, now)
+                // No EID -> never forwarded: one bad packet 422s the whole batch (§1a).
+                val eid = parsed.eidHex ?: return
+                if (!throttle.shouldForward(eid, now)) return
+                onPacket?.invoke(parsed, result.rssi, now)
+            } catch (t: Throwable) {
+                Log.w(LOG_TAG, "scan callback error", t)
+            }
         }
 
         override fun onScanFailed(errorCode: Int) {
-            onScanFailedCode?.invoke(errorCode)
-            onState?.invoke(
-                when (errorCode) {
-                    // A second startScan with the same callback while one is
-                    // live. The original scan is untouched, so reporting
-                    // anything but SCANNING here would mislabel a working
-                    // radio (0005 review finding).
-                    SCAN_FAILED_ALREADY_STARTED -> State.SCANNING
-                    SCAN_FAILED_FEATURE_UNSUPPORTED -> State.UNSUPPORTED
-                    else -> State.IDLE
-                }
-            )
+            try {
+                onScanFailedCode?.invoke(errorCode)
+                onState?.invoke(
+                    when (errorCode) {
+                        // A second startScan with the same callback while one is
+                        // live. The original scan is untouched, so reporting
+                        // anything but SCANNING here would mislabel a working
+                        // radio (0005 review finding).
+                        SCAN_FAILED_ALREADY_STARTED -> State.SCANNING
+                        SCAN_FAILED_FEATURE_UNSUPPORTED -> State.UNSUPPORTED
+                        else -> State.IDLE
+                    }
+                )
+            } catch (t: Throwable) {
+                Log.w(LOG_TAG, "scan-failed callback error", t)
+            }
         }
     }
 
@@ -166,5 +178,7 @@ internal class BleScanner(private val context: Context) {
 
         /** Forward at most one packet per EID per window (§2). */
         const val PER_EID_THROTTLE_MILLIS = 3_000L
+
+        private const val LOG_TAG = "EEGateway"
     }
 }

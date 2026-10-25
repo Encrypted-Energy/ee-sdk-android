@@ -7,6 +7,7 @@ import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Bundle
 import android.os.Looper
+import android.util.Log
 
 /**
  * Platform location source (plan §1a). Framework LocationManager only — no
@@ -40,10 +41,16 @@ internal class LocationProvider(private val context: Context) {
     // calls onStatusChanged, which a lambda-backed listener doesn't implement
     // (AbstractMethodError at runtime).
     private val listener = object : LocationListener {
+        // Framework -> SDK boundary (C6): never let a throw unwind into the
+        // host's main looper.
         override fun onLocationChanged(location: Location) {
-            toFix(location)?.let {
-                latest = it
-                onFix?.invoke(it)
+            try {
+                toFix(location)?.let {
+                    latest = it
+                    onFix?.invoke(it)
+                }
+            } catch (t: Throwable) {
+                Log.w(LOG_TAG, "location callback error", t)
             }
         }
 
@@ -121,6 +128,7 @@ internal class LocationProvider(private val context: Context) {
 
     companion object {
         private const val UPDATE_INTERVAL_MILLIS = 5_000L
+        private const val LOG_TAG = "EEGateway"
         private val PROVIDERS =
             listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
     }

@@ -105,6 +105,19 @@ class UploadLoopTest {
     }
 
     @Test
+    fun throwingOutcomeCallbackIsSwallowedAfterQueueWorkCommits() {
+        // C6: an uncaught throw would cancel scheduleWithFixedDelay forever.
+        val queue = loaded(2)
+        val counters = Counters()
+        val loop = UploadLoop({ EEClient.Result.Ok(200) }, queue, counters) {
+            throw IllegalStateException("host callback bug")
+        }
+        loop.tick()   // must not propagate
+        assertEquals(0, queue.size())
+        assertEquals(2, counters.snapshotAndReset().forwarded)
+    }
+
+    @Test
     fun bountySurfacesInOutcome() {
         var outcome: BatchSender.Outcome? = null
         UploadLoop(

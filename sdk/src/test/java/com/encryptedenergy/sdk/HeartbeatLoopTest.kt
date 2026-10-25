@@ -84,6 +84,18 @@ class HeartbeatLoopTest {
     }
 
     @Test
+    fun throwingResultCallbackIsSwallowedAfterDeltaBookkeeping() {
+        // C6: an uncaught throw would cancel scheduleWithFixedDelay forever.
+        val counters = countersWithHeard(2)
+        val loop = HeartbeatLoop(
+            { EEClient.Result.Transient("network") }, counters, { runtime }
+        ) { throw IllegalStateException("engine callback bug") }
+        loop.tick()   // must not propagate
+        // The transient restore already committed before the callback threw.
+        assertEquals(2, counters.snapshotAndReset().heard)
+    }
+
+    @Test
     fun sdkCadenceIsFiveMinutes() {
         // Plan §3 diagram + §6 risk 3: conservative fleet cadence, NOT the
         // first-party app's 60 s. A partner's battery budget is a contract.

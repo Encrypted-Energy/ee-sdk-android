@@ -46,6 +46,28 @@ class EEClientTest {
     @Test fun disableNonBooleanIsFalse() =
         assertFalse(EEClient.parseDisable("""{"disable":"yes"}"""))
 
+    // --- gateway.public_id (heartbeat/verify 2xx body, C6) ---
+
+    @Test fun publicIdParsesFromGatewayBlock() =
+        assertEquals(
+            "gw_a1b2c3",
+            EEClient.parsePublicId(
+                """{"ok":true,"gateway":{"name":"Fleet 7","public_id":"gw_a1b2c3"}}"""
+            ),
+        )
+
+    @Test fun publicIdAbsentIsNull() {
+        assertEquals(null, EEClient.parsePublicId("""{"ok":true}"""))
+        assertEquals(null, EEClient.parsePublicId("""{"ok":true,"gateway":{"name":"x"}}"""))
+    }
+
+    @Test fun publicIdNullOrMalformedBodyIsNull() {
+        // Identity is a nicety, never a failure.
+        assertEquals(null, EEClient.parsePublicId(null))
+        assertEquals(null, EEClient.parsePublicId("""{broken"""))
+        assertEquals(null, EEClient.parsePublicId("""{"gateway":"not an object"}"""))
+    }
+
     // --- invalid_reasons (ingest 422 body) ---
 
     @Test fun invalidReasonsParsesStrings() =

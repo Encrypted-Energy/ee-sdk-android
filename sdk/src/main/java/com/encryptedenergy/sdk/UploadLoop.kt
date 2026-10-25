@@ -50,7 +50,13 @@ internal class UploadLoop(
         // stalest if the queue filled meanwhile.
         if (outcome.requeue.isNotEmpty()) queue.requeue(outcome.requeue)
         repeat(outcome.forwarded) { counters.incForwarded() }
-        onOutcome(outcome)
+        try {
+            onOutcome(outcome)
+        } catch (_: Throwable) {
+            // A throwing callback must not kill the loop (C6): an uncaught
+            // exception cancels scheduleWithFixedDelay permanently, and the
+            // queue work above is already committed either way.
+        }
     }
 
     companion object {

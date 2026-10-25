@@ -54,7 +54,13 @@ internal class HeartbeatLoop(
             EEClient.Result.Transient(e.javaClass.simpleName)
         }
         if (result is EEClient.Result.Transient) counters.restore(snapshot)
-        onResult(result)
+        try {
+            onResult(result)
+        } catch (_: Throwable) {
+            // A throwing callback must not kill the loop (C6): an uncaught
+            // exception cancels scheduleWithFixedDelay permanently, and the
+            // delta bookkeeping above is already committed either way.
+        }
     }
 
     companion object {

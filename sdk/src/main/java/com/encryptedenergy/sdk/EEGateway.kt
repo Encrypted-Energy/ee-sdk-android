@@ -104,8 +104,9 @@ object EEGateway {
                 val context = appContext ?: return   // nothing to start; not an error
                 val cfg = config ?: return
                 if (current.state == EEState.RUNNING ||
-                    current.state == EEState.AWAITING_PERMISSIONS
-                ) return                             // idempotent
+                    current.state == EEState.AWAITING_PERMISSIONS ||
+                    current.state == EEState.PAUSED_REMOTE
+                ) return                             // idempotent (incl. remote-paused: already started)
 
                 // A config change (new token, new base URL) takes effect
                 // here, from a non-running state: tear down and rebuild.
@@ -120,8 +121,11 @@ object EEGateway {
                 e.start()
                 transition(
                     composeStatus(
-                        if (e.permissionsGranted()) EEState.RUNNING
-                        else EEState.AWAITING_PERMISSIONS
+                        when {
+                            e.remotePaused -> EEState.PAUSED_REMOTE
+                            e.permissionsGranted() -> EEState.RUNNING
+                            else -> EEState.AWAITING_PERMISSIONS
+                        }
                     )
                 )
             }
@@ -177,6 +181,7 @@ object EEGateway {
             pingsHeard = e.pingsHeard,
             packetsForwarded = e.packetsForwarded,
             queueDepth = e.queueDepth(),
+            gatewayPublicId = e.gatewayPublicId,
             lastHeartbeatAt = e.lastHeartbeatAt,
         )
     }
@@ -195,9 +200,14 @@ object EEGateway {
             refreshPending = true
         }
         mainHandler.postDelayed({
-            synchronized(lock) {
-                refreshPending = false
-                refreshLocked()
+            try {
+                synchronized(lock) {
+                    refreshPending = false
+                    refreshLocked()
+                }
+            } catch (_: Throwable) {
+                // Posted work runs outside the public-method guards; it gets
+                // its own (plan §3: an SDK bug never crashes the host).
             }
         }, REFRESH_COALESCE_MILLIS)
     }
@@ -207,6 +217,7 @@ object EEGateway {
         val e = engine ?: return
         val state = when {
             !e.started -> current.state          // READY or STOPPED: host-driven
+            e.remotePaused -> EEState.PAUSED_REMOTE
             e.scanning -> EEState.RUNNING
             else -> EEState.AWAITING_PERMISSIONS
         }

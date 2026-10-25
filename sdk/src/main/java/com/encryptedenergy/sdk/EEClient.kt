@@ -32,6 +32,9 @@ internal class EEClient(
             val code: Int,
             val bountyEarned: Int = 0,
             val disable: Boolean = false,
+            /** `gateway.public_id` from a heartbeat 2xx body (C6) — feeds
+             *  [EEStatus.gatewayPublicId]; null when absent/malformed. */
+            val publicId: String? = null,
         ) : Result()
         object Unauthorized : Result()
         /** Non-401 4xx. [body] survives so 422 invalid_reasons can be read. */
@@ -66,7 +69,9 @@ internal class EEClient(
         val token = tokenProvider() ?: return Result.Unauthorized
         val http = send("POST", "$baseUrl/api/v1/gateways/heartbeat", token, payloadJson, "heartbeat")
             ?: return Result.Transient("network")
-        return map(http) { code, body -> Result.Ok(code, disable = parseDisable(body)) }
+        return map(http) { code, body ->
+            Result.Ok(code, disable = parseDisable(body), publicId = parsePublicId(body))
+        }
     }
 
     /**
@@ -176,6 +181,16 @@ internal class EEClient(
          */
         fun parseDisable(body: String?): Boolean =
             body?.let { runCatching { Json.bool(Json.parse(it), "disable") }.getOrNull() } ?: false
+
+        /**
+         * `gateway.public_id` from a heartbeat/verify 2xx body; null if
+         * absent or malformed — identity is a nicety, never a failure.
+         */
+        fun parsePublicId(body: String?): String? =
+            body?.let {
+                runCatching { Json.str(Json.child(Json.parse(it), "gateway"), "public_id") }
+                    .getOrNull()
+            }
 
         /** `invalid_reasons` from an ingest 422 body; empty if absent/malformed. */
         fun parseInvalidReasons(body: String?): List<String> =
