@@ -81,6 +81,10 @@ server before it's ever persisted (Keystore-encrypted at rest), so a
 revoked or mistyped token can't poison a phone. Rotation: hand the device a
 new token, `configure` + `start` again.
 
+API-created gateways default to `"email_alerts": false` — fleet installs
+go quiet every shift end, and nobody wants a thousand outage emails. Pass
+`"email_alerts": true` on create to opt a specific gateway in.
+
 **SelfMint (demo).** `EEConfig.SelfMint()` and the device creates its own
 identity on first run. Great for kicking the tires; not the production path.
 
