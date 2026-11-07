@@ -107,5 +107,5 @@ dormancy demo when a grant is missing).
 
 ---
 
-*Draft status: ships as C10 after C8 dogfood. iOS counterpart:
-`Encrypted-Energy/ee-sdk-ios`.*
+*iOS counterpart: `Encrypted-Energy/ee-sdk-ios` (first-device dogfood
+passed 2026-11-07; the two SDKs share wire contracts and test fixtures).*

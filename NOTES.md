@@ -386,3 +386,14 @@ and they are what the harness exercises (11 tests, all green).
 `PAUSED_REMOTE` exist in the frozen enum and are fully documented, but are only
 reached once the permission-dormancy gate (C5) and the heartbeat `disable`
 handling (C6) land. That is the intended C1 stub scope per the brief.
+
+## C8/C10 disposition (11/7, John's call)
+
+Android on-device dogfood SKIPPED: the iOS SDK passed first-device dogfood
+against prod (gateway 408 — provisioning, heartbeats, forwarded batches),
+the two SDKs share the wire contracts, fixtures, and server endpoints, and
+the Android pipeline additionally has the stub-compile + 173-test harness
+plus the shipped-app heritage. Accepted risk: the Android Darwin... i.e.
+device-side integration (Studio build, FGS, real radio) is exercised by the
+first real partner integration instead. C10 tagged 0.1.0; AAR publish to
+GitHub Packages happens via RELEASING.md when a consumer exists.
