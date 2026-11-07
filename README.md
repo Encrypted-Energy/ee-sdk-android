@@ -13,13 +13,11 @@ credential in your binary.
 
 ## Install
 
-Private GitHub Packages. Add the coordinate:
-
-```kotlin
-dependencies {
-    implementation("com.encryptedenergy:gateway-sdk:0.1.0")
-}
-```
+The repo is public: clone or submodule it at the version tag and
+`include(":sdk")` in your settings. The AAR coordinate
+(`com.encryptedenergy:gateway-sdk`) publishes to GitHub Packages with
+the first partner build. Full install options are in
+[docs/INTEGRATION.md](docs/INTEGRATION.md).
 
 The SDK pulls in zero runtime dependencies. It's the Kotlin stdlib your app
 already ships and nothing else: no androidx, no Compose, no play-services.

@@ -36,7 +36,18 @@ forwards them. You get paid per unique device covered per day.
 Your existing FGS should declare (or add) the `location|connectedDevice`
 types; the sample's GatewayService shows the API-34-safe pattern.
 
-## Install (private phase: GitHub Packages)
+## Install
+
+The repo is public ([github.com/Encrypted-Energy/ee-sdk-android](https://github.com/Encrypted-Energy/ee-sdk-android)).
+Two paths:
+
+**From source (works today)**: clone or submodule the repo at the
+version tag and `include(":sdk")` in your settings. The module has zero
+dependencies beyond the Kotlin stdlib, so it adds nothing to your
+dependency tree.
+
+**GitHub Packages (publishes with the first partner build)**: GitHub
+requires a token with `read:packages` even for public packages:
 
 ```kotlin
 // settings.gradle.kts
@@ -49,7 +60,7 @@ maven {
 }
 
 // app/build.gradle.kts
-implementation("com.encryptedenergy:gateway-sdk:0.1.0")
+implementation("com.encryptedenergy:gateway-sdk:0.1.1")
 ```
 
 ## Identity: two modes

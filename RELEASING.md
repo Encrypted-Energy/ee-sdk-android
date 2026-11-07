@@ -1,4 +1,4 @@
-# Releasing (private AAR via GitHub Packages)
+# Releasing (AAR via GitHub Packages)
 
 ## Checklist
 
