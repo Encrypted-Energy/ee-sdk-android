@@ -14,6 +14,7 @@ import android.widget.TextView
 import com.encryptedenergy.sdk.EEConfig
 import com.encryptedenergy.sdk.EEGateway
 import com.encryptedenergy.sdk.EEStatus
+import com.encryptedenergy.sdk.EEState
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -141,8 +142,18 @@ class MainActivity : Activity() {
         val heartbeat = status.lastHeartbeatAt?.let {
             SimpleDateFormat("HH:mm:ss", Locale.US).format(Date(it))
         } ?: "—"
+        // Dogfood feedback (iOS, 11/6): a bare state word undersells the
+        // moment. Lead with an unmistakable colored headline.
+        val (headline, color) = when (status.state) {
+            EEState.RUNNING -> "● RUNNING — relaying" to 0xFF2E7D32.toInt()
+            EEState.AWAITING_PERMISSIONS -> "● waiting for permissions…" to 0xFFE65100.toInt()
+            EEState.PAUSED_REMOTE -> "● paused by fleet kill switch" to 0xFFE65100.toInt()
+            EEState.READY -> "● ready — tap Start" to 0xFF1565C0.toInt()
+            else -> "● ${'$'}{status.state.name.lowercase()}" to 0xFF616161.toInt()
+        }
+        statusView.setTextColor(color)
         statusView.text = buildString {
-            append("state: ").append(status.state).append('\n')
+            append(headline).append('\n')
             append("heard: ").append(status.pingsHeard)
             append("   forwarded: ").append(status.packetsForwarded)
             append("   queued: ").append(status.queueDepth).append('\n')
