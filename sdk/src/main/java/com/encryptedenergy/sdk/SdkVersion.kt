@@ -7,5 +7,5 @@ package com.encryptedenergy.sdk
  * never disagree. Bump this, and only this, on release.
  */
 internal object SdkVersion {
-    const val STRING = "0.1.0"
+    const val STRING = "0.2.0"
 }

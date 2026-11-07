@@ -94,6 +94,17 @@ class HeartbeatPayloadTest {
     }
 
     @Test
+    fun omitsHostAppWhenAbsent() {
+        assertFalse(HeartbeatPayload.build(runtime, deltas).contains("host_app"))
+    }
+
+    @Test
+    fun includesHostAppWhenPresent() {
+        val json = HeartbeatPayload.build(runtime.copy(hostApp = "com.example.host"), deltas)
+        assertTrue(json, json.contains("\"host_app\":\"com.example.host\""))
+    }
+
+    @Test
     fun isoUtcIsStable() {
         // 1783780342 unix seconds is the plan §1a fixture timestamp.
         assertEquals("2026-07-11T14:32:22Z", HeartbeatPayload.isoUtc(1_783_780_342_000))

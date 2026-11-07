@@ -31,11 +31,20 @@ internal object HeartbeatPayload {
         /** DeviceRollup.toJson output — devices_seen block (0005+). */
         val devicesSeen: Json.Raw? = null,
         /**
-         * "full" | "reduced" — ScanPolicy state (0009+). ee-web ignores
-         * unpermitted params today; a later gateways column makes the
-         * adaptive policy observable fleet-wide with no app release.
+         * "full" | "reduced" | "paused" — ScanPolicy/RadioGate state
+         * (0009+, "paused" added 0.2.0). ee-web ignores unpermitted params
+         * today; a later gateways column makes the adaptive policy
+         * observable fleet-wide with no app release.
          */
         val scanMode: String? = null,
+        /**
+         * Host app identifier (0.2.0 item i): context.packageName, so the
+         * fleet dashboard can group installs by the app they live in and
+         * ops can spot a token minted for one app running inside another.
+         * Additive optional field; the server ignores it until it grows a
+         * column.
+         */
+        val hostApp: String? = null,
     )
 
     fun build(runtime: Runtime, deltas: Counters.Snapshot): String {
@@ -57,6 +66,7 @@ internal object HeartbeatPayload {
         runtime.clientState?.let { fields.add("status" to it) }
         runtime.devicesSeen?.let { fields.add("devices_seen" to it) }
         runtime.scanMode?.let { fields.add("scan_mode" to it) }
+        runtime.hostApp?.let { fields.add("host_app" to it) }
         return Json.obj(fields)
     }
 

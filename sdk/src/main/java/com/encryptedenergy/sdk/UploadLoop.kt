@@ -16,6 +16,15 @@ import java.util.concurrent.TimeUnit
  * EEClient.Result`) and [onOutcome] fires on the loop's executor thread, so
  * every branch unit-tests on the pure JVM via [tick]. The engine marshals
  * outcomes to the main thread; this class never touches a Looper.
+ *
+ * ## 429 cooldown (0.2.0 item vi, from the app's 2026-09-14 storm)
+ * A rate-limited server (Rack::Attack 600/hr/token) must not be hit every
+ * 10 s for the rest of the window. The first 429 in a burst arms a
+ * [COOLDOWN_BASE_MILLIS] cooldown; each subsequent 429 doubles it up to
+ * [COOLDOWN_CAP_MILLIS]; ticks inside the cooldown skip the drain entirely
+ * (no wire call, no queue churn). The first batch the server accepts resets
+ * the ladder. Other transients (network, 5xx) keep the plain 10 s cadence —
+ * they are not the server asking us to back off.
  */
 internal class UploadLoop(
     private val ingest: (String) -> EEClient.Result,
@@ -25,6 +34,11 @@ internal class UploadLoop(
 ) {
 
     private var executor: ScheduledExecutorService? = null
+
+    // Single-writer: only the loop thread (or the test caller) touches
+    // these, always from inside tick().
+    private var cooldownUntilMillis = 0L
+    private var cooldownStepMillis = 0L
 
     fun start() {
         if (executor != null) return
@@ -40,11 +54,29 @@ internal class UploadLoop(
         executor = null
     }
 
-    /** One drain pass. No-op (and no callback) on an empty queue. */
-    fun tick() {
+    /** Scheduler entry point. */
+    fun tick() = tick(System.currentTimeMillis())
+
+    /** One drain pass. No-op (and no callback) on an empty queue or while
+     *  a 429 cooldown is in force. Test seam: inject the clock. */
+    fun tick(nowMillis: Long) {
+        if (nowMillis < cooldownUntilMillis) return
         val batch = queue.takeBatch(PacketQueue.MAX_BATCH)
         if (batch.isEmpty()) return
         val outcome = BatchSender.send(batch, ingest)
+        when {
+            outcome.forwarded > 0 -> {
+                // The server is accepting again: disarm the ladder.
+                cooldownStepMillis = 0
+                cooldownUntilMillis = 0
+            }
+            outcome.transientReason == RATE_LIMITED_REASON -> {
+                cooldownStepMillis =
+                    if (cooldownStepMillis == 0L) COOLDOWN_BASE_MILLIS
+                    else minOf(cooldownStepMillis * 2, COOLDOWN_CAP_MILLIS)
+                cooldownUntilMillis = nowMillis + cooldownStepMillis
+            }
+        }
         // Undecided packets (transient/401) go back to the FRONT so a
         // recovered network uploads oldest-first; capacity re-trim drops the
         // stalest if the queue filled meanwhile.
@@ -62,5 +94,10 @@ internal class UploadLoop(
     companion object {
         const val INTERVAL_SECONDS = 10L
         private const val INITIAL_DELAY_SECONDS = 3L
+        /** EEClient's transient reason for HTTP 429 — the only transient
+         *  that means "the server asked us to go away". */
+        const val RATE_LIMITED_REASON = "HTTP 429"
+        const val COOLDOWN_BASE_MILLIS = 60_000L
+        const val COOLDOWN_CAP_MILLIS = 15 * 60_000L
     }
 }

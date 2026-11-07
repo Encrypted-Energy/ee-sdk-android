@@ -84,6 +84,7 @@ internal class Engine(
     private val locationProvider = LocationProvider(context)
     private val scanner = BleScanner(context)
     private val scanPolicy = ScanPolicy()
+    private val radioGate = RadioGate()
     private val heartbeatLoop: HeartbeatLoop
     private val uploadLoop: UploadLoop
 
@@ -107,6 +108,9 @@ internal class Engine(
     private val startedElapsed = SystemClock.elapsedRealtime()
     private var scanReduced = false
     private var batteryRegistered = false
+    /** Radio parked by RadioGate (low battery / dead fix stream) while the
+     *  pipeline stays up. Written on the main looper, read by heartbeat. */
+    @Volatile private var radioParked = false
 
     fun queueDepth(): Int = queue.size()
     fun permissionsGranted(): Boolean = ScanPermissions.granted(context)
@@ -115,7 +119,11 @@ internal class Engine(
     // status immediately, and this fires on every plug/unplug after that.
     private val batteryReceiver = object : BroadcastReceiver() {
         override fun onReceive(c: Context?, intent: Intent?) = guard {
-            if (scanPolicy.onCharging(isCharging(intent))) retuneScanMode()
+            val charging = isCharging(intent)
+            radioGate.onCharging(charging)
+            batteryPct(intent)?.let { radioGate.onBatteryPct(it) }
+            evaluateRadio()
+            if (scanPolicy.onCharging(charging)) retuneScanMode()
         }
     }
 
@@ -125,6 +133,7 @@ internal class Engine(
     private val retuneTick = object : Runnable {
         override fun run() = guard {
             if (!scanning) return@guard
+            evaluateRadio()
             retuneScanMode()
             main.postDelayed(this, RETUNE_INTERVAL_MILLIS)
         }
@@ -164,6 +173,9 @@ internal class Engine(
 
         locationProvider.onFix = { fix ->
             scanPolicy.onFix(fix)
+            radioGate.onFix(System.currentTimeMillis())
+            // A returning fix stream reopens a PAUSED_NO_FIX radio at once.
+            evaluateRadio()
             retuneScanMode()
         }
 
@@ -359,18 +371,26 @@ internal class Engine(
     /** Scanner + location + adaptive-scan machinery. Main looper only. */
     private fun startPipeline() {
         if (scanning || remotePaused) return
-        scanPolicy.reset(System.currentTimeMillis())
+        val now = System.currentTimeMillis()
+        scanPolicy.reset(now)
+        radioGate.reset(now)
         val sticky = context.registerReceiver(
             batteryReceiver, IntentFilter(Intent.ACTION_BATTERY_CHANGED)
         )
         batteryRegistered = true
-        scanPolicy.onCharging(isCharging(sticky))
+        val charging = isCharging(sticky)
+        scanPolicy.onCharging(charging)
+        radioGate.onCharging(charging)
+        batteryPct(sticky)?.let { radioGate.onBatteryPct(it) }
         // Pre-tune so the scan starts on the right power profile instead of
         // restarting one tick in (setReduced before start() only records).
         retuneScanMode()
         locationProvider.start()
         scanning = true
-        scanner.start()
+        // A phone that starts on a critically low battery parks the radio
+        // from the first moment; the retune tick resumes it on charge.
+        radioParked = radioGate.verdict(now) != RadioGate.Verdict.SCAN
+        if (!radioParked) scanner.start()
         // A grant revoked between the permission check and the radio call
         // surfaces as a SYNCHRONOUS UNAUTHORIZED inside start(): the onState
         // handler tears the pipeline back down (scanning must already be
@@ -391,6 +411,22 @@ internal class Engine(
         scanner.stop()
         locationProvider.stop()
         scanning = false
+        radioParked = false
+    }
+
+    /**
+     * Park/resume the scanner per [RadioGate] while the pipeline stays up:
+     * location keeps running (it is both the stamp source and the
+     * PAUSED_NO_FIX recovery signal), loops keep running, heartbeats report
+     * scan_mode "paused". Main looper only.
+     */
+    private fun evaluateRadio() {
+        if (!scanning) return
+        val park = radioGate.verdict(System.currentTimeMillis()) != RadioGate.Verdict.SCAN
+        if (park == radioParked) return
+        radioParked = park
+        if (park) scanner.stop() else scanner.start()
+        onChanged()
     }
 
     /**
@@ -412,6 +448,14 @@ internal class Engine(
             else -> false
         }
 
+    /** Percent from the sticky battery intent, null when extras missing. */
+    private fun batteryPct(intent: Intent?): Int? {
+        val level = intent?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: return null
+        val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
+        if (level < 0 || scale <= 0) return null
+        return level * 100 / scale
+    }
+
     // Called from the heartbeat executor thread; all reads are safe there.
     private fun runtimeInfo(): HeartbeatPayload.Runtime {
         val now = System.currentTimeMillis()
@@ -425,9 +469,14 @@ internal class Engine(
             // remote-paused, or stopped SDK reports "backgrounded", matching
             // what the silent-gateway tooling expects from a phone that
             // isn't scanning.
-            clientState = if (scanning) "active" else "backgrounded",
+            clientState = if (scanning && !radioParked) "active" else "backgrounded",
             devicesSeen = rollup.toJson(now),
-            scanMode = if (scanPolicy.mode(now) == ScanPolicy.Mode.REDUCED) "reduced" else "full",
+            scanMode = when {
+                radioParked -> "paused"
+                scanPolicy.mode(now) == ScanPolicy.Mode.REDUCED -> "reduced"
+                else -> "full"
+            },
+            hostApp = context.packageName,
         )
     }
 
