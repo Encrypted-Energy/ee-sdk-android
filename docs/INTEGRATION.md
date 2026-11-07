@@ -1,7 +1,7 @@
-# EE Gateway SDK for Android — Integration Guide (draft)
+# EE Gateway SDK for Android — Integration Guide
 
-Turn your fleet's Android phones into Encrypted Energy gateways. Two lines
-from your existing service:
+Turn the Android phones running your app into Encrypted Energy gateways.
+Two lines from your existing service:
 
 ```kotlin
 EEGateway.configure(context, EEConfig.GatewayToken(tokenFromYourBackend))
@@ -18,8 +18,9 @@ forwards them. You get paid per unique device covered per day.
 - minSdk 26, zero runtime dependencies (the AAR pulls in nothing but the
   Kotlin stdlib you already ship).
 - Your app already holds the scan and location grants and runs a foreground
-  service (fleet apps do). The SDK never requests permissions and never
-  starts a service of its own: your lifecycle drives it.
+  service (tracker, fitness, automotive, and field-ops apps do). The SDK
+  never requests permissions and never starts a service of its own: your
+  lifecycle drives it.
 - Manifest: the reference set lives in the sample app's manifest and is
   quoted here. BLUETOOTH_SCAN deliberately does NOT assert neverForLocation,
   because relayed packets carry location and we declare that honestly:
