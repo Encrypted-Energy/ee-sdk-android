@@ -99,9 +99,14 @@ identity on first run. Great for kicking the tires; not the production path.
   ... }` delivers on the main thread, crash-isolated, coalesced to about
   once per second no matter how dense the beacon traffic gets.
 - **Battery is a contract, not a hope.** Heartbeats every 3 minutes.
-  Scanning adapts down when the phone sits still off-charger. Packets queue
-  locally (bounded, survives process death) and upload in batches on a
-  10 second cadence, oldest-first after an outage.
+  Scanning adapts down when the phone sits still off-charger, parks below
+  20% battery (resumes at 25% or on charger), and parks when the fix
+  stream dies for 5 minutes (packets it can't stamp are wasted radio);
+  heartbeats report `scan_mode` full/reduced/paused so your fleet view
+  stays honest. Packets queue locally (bounded, survives process death)
+  and upload in batches on a 10 second cadence, oldest-first after an
+  outage, and a rate-limited server backs the uploader off 60 s doubling
+  to 15 min instead of being hammered.
 - **There's a fleet kill switch.** One `gateways_paused` flag on your org
   (we flip it on request; self-serve toggle coming) parks every SDK phone
   within one heartbeat; heartbeats keep flowing so un-pausing takes effect
