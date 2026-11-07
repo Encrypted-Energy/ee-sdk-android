@@ -64,8 +64,8 @@ val now = EEGateway.status()
 
 ## License
 
-The SDK is dual-licensed: GPL-3.0 (see [LICENSE](LICENSE)), or a commercial
-license for proprietary apps (see [COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md)).
+Apache-2.0 (see [LICENSE](LICENSE)). Use it in proprietary apps, no strings
+attached.
 
 ## Integration guide
 
