@@ -6,7 +6,7 @@ import java.util.concurrent.TimeUnit
 
 /**
  * Heartbeat loop (plan §1b): fires immediately on start, then every
- * [INTERVAL_SECONDS]. The SDK's cadence is 5 MINUTES, not the first-party
+ * [INTERVAL_SECONDS]. The SDK's cadence is 3 MINUTES, not the first-party
  * app's 60 s — conservative battery/network cost on someone else's fleet is
  * a hard contract (plan §6 risk 3), and the architecture diagram pins it.
  *
@@ -64,7 +64,8 @@ internal class HeartbeatLoop(
     }
 
     companion object {
-        /** 5 min — the SDK's conservative fleet cadence (plan §3 diagram). */
-        const val INTERVAL_SECONDS = 300L
+        /** 3 min — fleet cadence (300 s at launch; 180 s per John 11/6
+         *  after first-device dogfood). */
+        const val INTERVAL_SECONDS = 180L
     }
 }

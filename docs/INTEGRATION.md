@@ -82,7 +82,7 @@ identity on first run. Great for kicking the tires; not the production path.
 - **Status is observable, not polled.** `EEGateway.setListener { status ->
   ... }` delivers on the main thread, crash-isolated, coalesced to about
   once per second no matter how dense the beacon traffic gets.
-- **Battery is a contract, not a hope.** Heartbeats every 5 minutes.
+- **Battery is a contract, not a hope.** Heartbeats every 3 minutes.
   Scanning adapts down when the phone sits still off-charger. Packets queue
   locally (bounded, survives process death) and upload in batches on a
   10 second cadence, oldest-first after an outage.

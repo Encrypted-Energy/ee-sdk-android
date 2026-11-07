@@ -96,9 +96,9 @@ class HeartbeatLoopTest {
     }
 
     @Test
-    fun sdkCadenceIsFiveMinutes() {
+    fun sdkCadenceIsThreeMinutes() {
         // Plan §3 diagram + §6 risk 3: conservative fleet cadence, NOT the
         // first-party app's 60 s. A partner's battery budget is a contract.
-        assertEquals(300L, HeartbeatLoop.INTERVAL_SECONDS)
+        assertEquals(180L, HeartbeatLoop.INTERVAL_SECONDS)
     }
 }
