@@ -42,10 +42,46 @@ types; the sample's GatewayService shows the API-34-safe pattern.
 The repo is public ([github.com/Encrypted-Energy/ee-sdk-android](https://github.com/Encrypted-Energy/ee-sdk-android)).
 Two paths:
 
-**From source (works today)**: clone or submodule the repo at the
-version tag and `include(":sdk")` in your settings. The module has zero
-dependencies beyond the Kotlin stdlib, so it adds nothing to your
-dependency tree.
+**Prebuilt AAR (works today, recommended)**: build once, drop it in.
+The module has zero dependencies beyond the Kotlin stdlib, so it adds
+nothing to your dependency tree.
+
+```
+git clone --branch 0.2.0 https://github.com/Encrypted-Energy/ee-sdk-android.git
+cd ee-sdk-android && ./gradlew :sdk:assembleRelease
+cp sdk/build/outputs/aar/sdk-release.aar YOUR_APP/app/libs/
+```
+
+```kotlin
+// app/build.gradle.kts
+dependencies {
+    implementation(files("libs/sdk-release.aar"))
+}
+```
+
+**Composite build (source dependency)**: clone the repo next to your
+project (or as a submodule) and let Gradle substitute the coordinate.
+The SDK builds with its own version catalog and AGP, so your project's
+Gradle/AGP must be recent enough to load both (Gradle 8.9+ / AGP 8.6+
+is safe):
+
+```kotlin
+// settings.gradle.kts
+includeBuild("ee-sdk-android") {
+    dependencySubstitution {
+        substitute(module("com.encryptedenergy:gateway-sdk")).using(project(":sdk"))
+    }
+}
+
+// app/build.gradle.kts
+dependencies {
+    implementation("com.encryptedenergy:gateway-sdk:0.2.0")
+}
+```
+
+Do NOT `include(":sdk")` directly into your own settings: the module
+resolves its plugins through this repo's version catalog, which your
+build doesn't load.
 
 **GitHub Packages (publishes with the first partner build)**: GitHub
 requires a token with `read:packages` even for public packages:
@@ -61,7 +97,7 @@ maven {
 }
 
 // app/build.gradle.kts
-implementation("com.encryptedenergy:gateway-sdk:0.1.1")
+implementation("com.encryptedenergy:gateway-sdk:0.2.0")
 ```
 
 ## Identity: two modes

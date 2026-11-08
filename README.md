@@ -9,6 +9,7 @@ and nothing changes for your users beyond one opt-in screen you
 control.
 
 ```kotlin
+// from the foreground service your app already runs
 EEGateway.configure(context, EEConfig.GatewayToken(tokenFromYourBackend))
 EEGateway.start()
 ```
@@ -42,15 +43,39 @@ That's the whole integration.
    → { "gateway": { ... }, "token": { "key": "ee_live_..." } }
    ```
 
-3. **Install the SDK.** Clone or submodule this repo at the version
-   tag and `include(":sdk")` in your settings. (The
-   `com.encryptedenergy:gateway-sdk` AAR publishes to GitHub Packages
-   with the first partner build.)
-4. **Add the two lines** above, handing each device its `ee_live_…`
-   token over your own authenticated channel.
-5. **Watch it earn** on your [dashboard](https://encryptedenergy.com/settings/org/gateways):
-   packets, devices heard, and sats per install, with your fleet
-   rolled up into one card.
+3. **Install the SDK.** Build the AAR once and drop it in:
+
+   ```
+   git clone --branch 0.2.0 https://github.com/Encrypted-Energy/ee-sdk-android.git
+   cd ee-sdk-android && ./gradlew :sdk:assembleRelease
+   cp sdk/build/outputs/aar/sdk-release.aar YOUR_APP/app/libs/
+   ```
+
+   ```kotlin
+   // app/build.gradle.kts
+   dependencies {
+       implementation(files("libs/sdk-release.aar"))
+   }
+   ```
+
+   (Prefer a source dependency? [docs/INTEGRATION.md](docs/INTEGRATION.md)
+   has the composite-build setup. The
+   `com.encryptedenergy:gateway-sdk` coordinate publishes to GitHub
+   Packages with the first partner build.)
+4. **Add the two lines** above in your foreground service, handing
+   each device its `ee_live_…` token over your own authenticated
+   channel.
+5. **Confirm it's alive.** Within 3 minutes your
+   [dashboard](https://encryptedenergy.com/settings/org/gateways)
+   shows the install's first heartbeat ("Seen seconds ago" plus a GPS
+   status). That heartbeat means the integration works.
+
+A word on what you'll see next: the gateway stays **"Pending first
+packet"** until it hears a real beacon, and at a desk that can take a
+while: beacon fleets cluster around warehouses, delivery routes, and
+logistics corridors, not office parks. Heartbeats flowing = done;
+packets follow wherever your users actually go. Take the sample for a
+drive if you want to see one land.
 
 Kicking the tires first? `EEConfig.SelfMint()` lets a device mint its
 own identity with no backend work: demo mode, not the production
@@ -59,8 +84,8 @@ path.
 ## Try the sample
 
 [`sample/`](sample/) is a one-screen host app: the permission flow,
-both identity modes, Start/Stop, and live status. Open the project,
-paste a token, and you're forwarding packets in minutes.
+both identity modes, Start/Stop, and live status. Open this repo in
+Android Studio, run the `sample` configuration, and paste a token.
 
 ## The contract
 
