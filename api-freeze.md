@@ -2,17 +2,17 @@
 
 This is the frozen public surface of the EE gateway SDK, as of C1 (0.1.0).
 
-**Frozen-additive from C1 forward.** Once a partner ships against this surface
-we can't force their app to update, so nothing here ever changes meaning,
+**Frozen-additive from C1 forward.** Once you ship against this surface
+we can't force your app to update, so nothing here ever changes meaning,
 signature, or removal. We only add: new types, new optional parameters with
-defaults, new enum entries appended at the end. A `when` a partner wrote over
-`EEState` in C1 keeps compiling, and a call they wrote in C1 keeps behaving.
+defaults, new enum entries appended at the end. A `when` you wrote over
+`EEState` in C1 keeps compiling, and a call you wrote in C1 keeps behaving.
 
 Anything not listed below is internal and may change at any time.
 
 ```kotlin
 object EEGateway {
-    const val VERSION = "0.1.0"
+    const val VERSION: String   // the release you built against
     @JvmStatic fun configure(context: Context, config: EEConfig)
     @JvmStatic fun start()
     @JvmStatic fun stop()
@@ -52,7 +52,7 @@ fun interface EEListener { fun onStatusChanged(status: EEStatus) }
 - Public API never throws. Every boundary is crash-isolated.
 - Never prompts for permissions. `start()` with grants missing lands in
   `AWAITING_PERMISSIONS`; it does not request.
-- No foreground service of its own. The host drives the lifecycle.
+- No foreground service of its own. Your app drives the lifecycle.
 - `configure()` is idempotent and holds only `applicationContext`, never an
   Activity.
 - `start()` / `stop()` are idempotent and main-thread safe.
