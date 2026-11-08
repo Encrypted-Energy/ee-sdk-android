@@ -1,12 +1,12 @@
 # API freeze
 
-This is the frozen public surface of the EE gateway SDK, as of C1 (0.1.0).
+This is the frozen public surface of the EE gateway SDK, as of 0.1.0.
 
-**Frozen-additive from C1 forward.** Once you ship against this surface
+**Frozen-additive from 0.1.0 forward.** Once you ship against this surface
 we can't force your app to update, so nothing here ever changes meaning,
 signature, or removal. We only add: new types, new optional parameters with
 defaults, new enum entries appended at the end. A `when` you wrote over
-`EEState` in C1 keeps compiling, and a call you wrote in C1 keeps behaving.
+`EEState` at 0.1.0 keeps compiling, and a call you wrote at 0.1.0 keeps behaving.
 
 Anything not listed below is internal and may change at any time.
 
