@@ -4,9 +4,7 @@ Your app already holds Bluetooth and location permissions. This SDK
 borrows the idle radio: it hears encrypted beacon packets from
 logistics sensor networks, stamps where they were heard, and relays
 them up. Every device your installs hear first in a day earns your
-org a bounty, paid in Bitcoin over Lightning. No ads, no data sale,
-and nothing changes for your users beyond one opt-in screen you
-control.
+org a bounty, paid in Bitcoin over Lightning. No ads, no data sale.
 
 ```kotlin
 // from the foreground service your app already runs
@@ -15,6 +13,41 @@ EEGateway.start()
 ```
 
 That's the whole integration.
+
+## What actually changes
+
+For your users:
+
+- **No new permission prompts.** The SDK uses the grants your app
+  already holds and never asks for anything itself.
+- **One opt-in screen, shown by your app, before the first scan.**
+  Your users granted Bluetooth and location for your features.
+  Relaying beacon data to a third party is a new use of those grants,
+  and Google Play requires prominent disclosure and consent before an
+  app does that. The opt-in screen is that consent, and it's what
+  keeps your app on the right side of store review. We ship the exact
+  copy in [docs/COMPLIANCE.md](docs/COMPLIANCE.md). Users who decline
+  keep using your app exactly as before; you never call `start()` for
+  them.
+- **A small, managed battery cost.** Scanning adapts down when the
+  phone sits still, parks below 20% battery or when GPS has no fix,
+  and resumes on its own.
+- **Nothing readable leaves the phone.** Packet payloads are encrypted
+  by the sensor owner's key; neither you nor we can read them. The
+  location stamps price bounties and draw the coverage map, and
+  they're never sold.
+
+For you:
+
+1. Drop in the AAR and add the two lines above.
+2. Show the disclosure screen (our copy, restyled however you like)
+   and call `start()` only for users who said yes.
+3. Copy the data-safety answers from
+   [docs/COMPLIANCE.md](docs/COMPLIANCE.md) into your Play listing.
+4. Provision one token per install from your backend
+   ([Quickstart](#quickstart) below).
+5. Get paid: 1 sat per unique device heard first per UTC day, pooled
+   across your org, settled daily over Lightning.
 
 ## Requirements
 
@@ -62,9 +95,9 @@ That's the whole integration.
    has the composite-build setup. The
    `com.encryptedenergy:gateway-sdk` coordinate publishes to GitHub
    Packages with the first partner build.)
-4. **Add the two lines** above in your foreground service, handing
-   each device its `ee_live_…` token over your own authenticated
-   channel.
+4. **Add the two lines** above in your foreground service, behind
+   your opt-in screen, handing each device its `ee_live_…` token over
+   your own authenticated channel.
 5. **Confirm it's alive.** Within 3 minutes your
    [dashboard](https://encryptedenergy.com/settings/org/gateways)
    shows the install's first heartbeat ("Seen seconds ago" plus a GPS
@@ -123,11 +156,11 @@ EE ops see the same truth.
 
 ## Store compliance
 
-Google Play requires prominent disclosure and consent before an SDK
-collects location in the background.
-[docs/COMPLIANCE.md](docs/COMPLIANCE.md) has the drop-in disclosure
-copy, the data-safety form answers, and the rules that keep review
-clean. Treat it as part of the integration, not paperwork.
+Google Play requires prominent disclosure and consent before granted
+permissions are used for a new purpose, and relaying beacon data is a
+new purpose. [docs/COMPLIANCE.md](docs/COMPLIANCE.md) has the drop-in
+disclosure copy, the data-safety form answers, and the rules that keep
+review clean. Treat it as part of the integration, not paperwork.
 
 ## Docs
 
