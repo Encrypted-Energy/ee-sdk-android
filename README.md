@@ -1,71 +1,131 @@
-# EE Gateway SDK (Android)
+# EE Gateway SDK for Android
 
-Turn your fleet's phones into silent Encrypted Energy gateways. Two lines:
+Your app already holds Bluetooth and location permissions. This SDK
+borrows the idle radio: it hears encrypted beacon packets from
+logistics sensor networks, stamps where they were heard, and relays
+them up. Every device your installs hear first in a day earns your
+org a bounty, paid in Bitcoin over Lightning. No ads, no data sale,
+and nothing changes for your users beyond one opt-in screen you
+control.
 
 ```kotlin
-EEGateway.configure(context, EEConfig.GatewayToken(token))  // token from your backend
-EEGateway.start()                                           // from your existing service lifecycle
+EEGateway.configure(context, EEConfig.GatewayToken(tokenFromYourBackend))
+EEGateway.start()
 ```
 
-Next app update, every phone in your fleet scans for EE beacons and forwards
-them in the background. No signup, no UI, no new permission prompts, and no EE
-credential in your binary.
+That's the whole integration.
 
-## Install
+## Requirements
 
-The repo is public: clone or submodule it at the version tag and
-`include(":sdk")` in your settings. The AAR coordinate
-(`com.encryptedenergy:gateway-sdk`) publishes to GitHub Packages with
-the first partner build. Full install options are in
-[docs/INTEGRATION.md](docs/INTEGRATION.md).
+- minSdk 26. Zero runtime dependencies (Kotlin stdlib only: no
+  androidx, no play-services).
+- Your app already holds `BLUETOOTH_SCAN` and fine/coarse location
+  grants, and runs a foreground service (tracker, fitness, automotive,
+  and field-ops apps do). The SDK never requests permissions and never
+  starts a service of its own: without the grants it parks in
+  `AWAITING_PERMISSIONS` and starts itself the moment your permission
+  flow completes.
+- The reference manifest and foreground-service pattern ship in
+  [`sample/`](sample/).
 
-The SDK pulls in zero runtime dependencies. It's the Kotlin stdlib your app
-already ships and nothing else: no androidx, no Compose, no play-services.
+## Quickstart
 
-## What it does
+1. **Create an org** at [encryptedenergy.com](https://encryptedenergy.com/sign-up)
+   and mint an org API key (`ee_org_…`) under Settings → API Keys.
+2. **Provision one gateway per install** from your backend: the org
+   key never ships in your binary:
 
-You provision one gateway per device from your own backend through the EE Org
-API, then hand each phone its token over your own authenticated channel. The
-SDK scans for BLE beacons, gates on a fresh location fix, queues packets, and
-uploads them to EE. Coverage and earnings accrue to your org, and settlement
-goes to your Lightning address. How you reward drivers is your business.
+   ```
+   POST https://encryptedenergy.com/api/v1/org/gateways
+   Authorization: Bearer ee_org_...
+   { "name": "install-8f3a" }
+   → { "gateway": { ... }, "token": { "key": "ee_live_..." } }
+   ```
 
-## The contracts
+3. **Install the SDK.** Clone or submodule this repo at the version
+   tag and `include(":sdk")` in your settings. (The
+   `com.encryptedenergy:gateway-sdk` AAR publishes to GitHub Packages
+   with the first partner build.)
+4. **Add the two lines** above, handing each device its `ee_live_…`
+   token over your own authenticated channel.
+5. **Watch it earn** on your [dashboard](https://encryptedenergy.com/settings/org/gateways):
+   packets, devices heard, and sats per install, with your fleet
+   rolled up into one card.
 
-These are promises, not just behavior. They hold for good:
+Kicking the tires first? `EEConfig.SelfMint()` lets a device mint its
+own identity with no backend work: demo mode, not the production
+path.
 
-- It never throws. Every public call is crash-isolated, so bad input, a dead
-  network, or a missing grant shows up in the status, never as an exception in
-  your app.
-- It never prompts for permissions. The SDK stays dormant until your app holds
-  the scan and location grants. `start()` with grants missing lands in
-  `AWAITING_PERMISSIONS`. It does not ask. Your app owns that UX.
-- It runs no foreground service of its own. You drive the lifecycle from your
-  service. The reference foreground service ships in the sample app.
-- `configure()` is idempotent and holds only your application context, never an
-  Activity, so it can't leak a screen.
-- `start()` and `stop()` are idempotent and safe to call on the main thread.
-- Listener callbacks arrive on the main thread, and a throwing listener can
-  never break the SDK.
-- There's a server-side kill switch. If EE disables your fleet, scanning and
-  upload stop while heartbeats keep going, so you come back the instant it
-  clears (`PAUSED_REMOTE`).
-- The public API is frozen. It only grows, it never changes meaning, because we
-  can't force your app to update. See [api-freeze.md](api-freeze.md).
+## Try the sample
 
-## Status and callbacks
+[`sample/`](sample/) is a one-screen host app: the permission flow,
+both identity modes, Start/Stop, and live status. Open the project,
+paste a token, and you're forwarding packets in minutes.
+
+## The contract
+
+These are promises, not just behavior (frozen in
+[api-freeze.md](api-freeze.md): the public API only grows, it never
+changes meaning):
+
+- **It never throws.** Bad input, a dead network, a missing grant:
+  all surface in status, never as an exception in your app.
+- **It never prompts.** Your app owns the permission UX; the SDK only
+  waits for it.
+- **Your lifecycle drives it.** No services, no background modes of
+  its own.
+- **Battery is a contract.** Scanning adapts down when the phone sits
+  still off-charger, parks below 20% battery and when the fix stream
+  dies (packets it can't stamp are wasted radio), and resumes on its
+  own. A rate-limited server backs the uploader off instead of being
+  hammered.
+- **There's a fleet kill switch.** One flag parks every install within
+  one heartbeat, no app update needed; heartbeats keep flowing so
+  un-pausing is just as fast.
+- **Packets queue through process death** (bounded at 1,000) and
+  upload oldest-first when the network returns.
+
+## Watching it run
 
 ```kotlin
-EEGateway.setListener { status -> log(status.state) }
+EEGateway.setListener { status -> log(status.state) }   // main thread, coalesced
 val now = EEGateway.status()
 ```
 
+Fleet-side, every install heartbeats as `ee-sdk-android/<version>`
+with packet counters and a devices-seen rollup, so your dashboard and
+EE ops see the same truth.
+
+## Store compliance
+
+Google Play requires prominent disclosure and consent before an SDK
+collects location in the background.
+[docs/COMPLIANCE.md](docs/COMPLIANCE.md) has the drop-in disclosure
+copy, the data-safety form answers, and the rules that keep review
+clean. Treat it as part of the integration, not paperwork.
+
+## Docs
+
+| Doc | What's in it |
+|---|---|
+| [docs/INTEGRATION.md](docs/INTEGRATION.md) | Full guide: manifest, identity modes, provisioning, the contract in detail |
+| [docs/COMPLIANCE.md](docs/COMPLIANCE.md) | Disclosure copy + Play data-safety answers |
+| [api-freeze.md](api-freeze.md) | The frozen public surface |
+| [NOTES.md](NOTES.md) | Engineering decisions and platform deltas |
+| [RELEASING.md](RELEASING.md) | Maintainer release flow |
+
+## Economics
+
+1 sat per unique device heard first per UTC day, pooled across your
+org, settled daily over Lightning once the pool clears 1,000 sats.
+Founding-partner terms are a conversation:
+[encryptedenergy.com/sdk](https://encryptedenergy.com/sdk) or
+contact@encryptedenergy.com.
+
 ## License
 
-Apache-2.0 (see [LICENSE](LICENSE)). Use it in proprietary apps, no strings
-attached.
+Apache-2.0 (see [LICENSE](LICENSE)). Use it in proprietary apps, no
+strings attached.
 
-## Integration guide
-
-Foreground service patterns, the permission flow, iOS parity, and the battery
-spec live in the integration guide. See the integration guide (coming soon).
+iOS counterpart: [`Encrypted-Energy/ee-sdk-ios`](https://github.com/Encrypted-Energy/ee-sdk-ios):
+same wire contracts, same test fixtures.

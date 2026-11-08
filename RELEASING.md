@@ -8,7 +8,7 @@
    updated in the same commit.
 3. Bump the version in BOTH places it lives: `SdkVersion.STRING` and
    `sdk/build.gradle.kts` (group/artifact `com.encryptedenergy:gateway-sdk`).
-   Update CHANGELOG/NOTES.
+   Update CHANGELOG.md.
 4. Publish from the repo root (PAT needs write:packages on the org):
 
    ```
