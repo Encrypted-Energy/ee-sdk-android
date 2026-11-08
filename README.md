@@ -120,28 +120,30 @@ path.
 both identity modes, Start/Stop, and live status. Open this repo in
 Android Studio, run the `sample` configuration, and paste a token.
 
-## The contract
+## What this SDK will never do to your app
 
-These are promises, not just behavior (frozen in
-[api-freeze.md](api-freeze.md): the public API only grows, it never
-changes meaning):
+You're letting our code live inside the app you built. These six
+promises are frozen in [api-freeze.md](api-freeze.md): the public API
+only grows, it never changes meaning.
 
-- **It never throws.** Bad input, a dead network, a missing grant:
-  all surface in status, never as an exception in your app.
-- **It never prompts.** Your app owns the permission UX; the SDK only
-  waits for it.
-- **Your lifecycle drives it.** No services, no background modes of
-  its own.
-- **Battery is a contract.** Scanning adapts down when the phone sits
-  still off-charger, parks below 20% battery and when the fix stream
-  dies (packets it can't stamp are wasted radio), and resumes on its
-  own. A rate-limited server backs the uploader off instead of being
-  hammered.
-- **There's a fleet kill switch.** One flag parks every install within
-  one heartbeat, no app update needed; heartbeats keep flowing so
-  un-pausing is just as fast.
-- **Packets queue through process death** (bounded at 1,000) and
-  upload oldest-first when the network returns.
+- **It can't crash your app.** Bad input, a dead network, a missing
+  grant: all of it surfaces in `status()`, never as an exception.
+- **Your users never see a prompt from us.** You own the permission
+  UX; the SDK waits behind it.
+- **It runs only where your app already runs.** No services, no
+  background modes of its own; your foreground service drives it and
+  it stops when your app stops.
+- **It protects the battery before it earns.** Scanning adapts down
+  when the phone sits still off-charger, parks below 20% battery or
+  when GPS has no fix (packets it can't stamp are wasted radio), then
+  resumes on its own. A rate-limited server backs the uploader off
+  instead of being hammered.
+- **You can pause every install with one switch.** One flag on your
+  org parks the whole fleet within a heartbeat, no app update needed.
+  Flip it back and they resume just as fast.
+- **It doesn't lose packets when Android kills the process.** The
+  queue (bounded at 1,000) persists and uploads oldest-first when the
+  network returns.
 
 ## Watching it run
 
