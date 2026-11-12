@@ -78,7 +78,7 @@ packets carry location stamps and the declaration must match.
 - **Tracking**: NO. Nothing is used for cross-app advertising or shared
   with data brokers, so App Tracking Transparency is not triggered.
 
-## 4. What you can say with a straight face
+## 4. What you can tell users and reviewers
 
 - The packet payload is encrypted by the device owner's key; the host
   app, the SDK, and Encrypted Energy cannot read it.
