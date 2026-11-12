@@ -1,9 +1,7 @@
 # Compliance Kit — disclosure, consent, and store forms
 
 What to tell your users, what to tell the stores, and the wording for
-both. This is the homework that kept BLE-relay SDKs alive in the stores
-while location-harvesting SDKs got their hosts banned. Have your counsel
-read it once; it's short.
+both.
 
 ## 1. User disclosure (required)
 
