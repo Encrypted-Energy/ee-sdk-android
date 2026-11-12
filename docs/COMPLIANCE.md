@@ -89,7 +89,7 @@ packets carry location stamps and the declaration must match.
   service, and a remote kill switch can pause every install without an
   app update.
 
-If a store reviewer asks what the SDK does, the honest one-liner:
+If a store reviewer asks what the SDK does, the one-liner:
 "It relays encrypted Bluetooth beacon packets from logistics sensor
 networks, with user consent, and the app developer is paid for the
 coverage."
