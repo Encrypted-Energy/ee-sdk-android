@@ -12,9 +12,8 @@ EEGateway.configure(context, EEConfig.GatewayToken(tokenFromYourBackend))
 EEGateway.start()
 ```
 
-That's the whole integration.
 
-## What actually changes
+## What changes
 
 For your users:
 

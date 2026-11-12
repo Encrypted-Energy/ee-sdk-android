@@ -23,7 +23,7 @@ forwards them. You get paid per unique device covered per day.
   lifecycle drives it.
 - Manifest: the reference set lives in the sample app's manifest and is
   quoted here. BLUETOOTH_SCAN deliberately does NOT assert neverForLocation,
-  because relayed packets carry location and we declare that honestly:
+  because relayed packets carry location and the declaration must match:
 
 ```xml
 <uses-permission android:name="android.permission.INTERNET" />
@@ -139,7 +139,7 @@ identity on first run. Great for kicking the tires; not the production path.
   20% battery (resumes at 25% or on charger), and parks when the fix
   stream dies for 5 minutes (packets it can't stamp are wasted radio);
   heartbeats report `scan_mode` full/reduced/paused so your fleet view
-  stays honest. Packets queue locally (bounded, survives process death)
+  stays accurate. Packets queue locally (bounded, survives process death)
   and upload in batches on a 10 second cadence, oldest-first after an
   outage, and a rate-limited server backs the uploader off 60 s doubling
   to 15 min instead of being hammered.
@@ -160,7 +160,7 @@ tell SDK traffic from first-party apps at a glance.
 ## Sample app
 
 `sample/` in this repo is a one-screen host app: token paste, Start/Stop,
-live status, and the reference FGS + permission flow (including the honest
+live status, and the reference FGS + permission flow (including the
 dormancy demo when a grant is missing).
 
 ---
