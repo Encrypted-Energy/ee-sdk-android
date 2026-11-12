@@ -8,7 +8,7 @@ EEGateway.configure(context, EEConfig.GatewayToken(tokenFromYourBackend))
 EEGateway.start()
 ```
 
-That's the whole integration. No signup screens, no new permission prompts,
+No signup screens, no new permission prompts,
 no EE credential in your binary. Your app keeps owning the user experience;
 the SDK scans for sensor beacons, stamps them with a fresh GPS fix, and
 forwards them. You get paid per unique device covered per day.
