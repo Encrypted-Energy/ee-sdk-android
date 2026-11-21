@@ -17,7 +17,7 @@ import kotlin.math.sqrt
  *                                     daily; hearing them an hour later
  *                                     costs nothing)
  *
- * HARD FLOOR: location cadence never adapts — the 25 s packet gate and
+ * HARD FLOOR: location cadence never adapts — the 30 s packet gate and
  * Hubble's ±30 s location-vs-detection filter need fresh fixes whenever
  * forwarding. Only the scanner's radio duty cycle changes, which is also why
  * there is no valve like iOS 0005's: reduced SCANNING cannot starve the fix

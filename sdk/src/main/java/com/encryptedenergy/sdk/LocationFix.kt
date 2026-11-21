@@ -23,16 +23,17 @@ internal data class LocationFix(
 ) {
 
     /**
-     * The 25 s staleness gate, same constant as iOS 1.2 fixForPacket and the
-     * Pi worker's GPS TTL. A stale fix must never be stamped on a packet —
-     * that was the whole stale-location incident (7/31). Future-dated fixes
-     * (clock skew) count as fresh; the server clamps.
+     * The 30 s staleness gate, aligned with the downstream network
+     * acceptance spec (fix ≤ 30 s old at hear-time while moving); 25 s
+     * before that spec was known. A stale fix must never be stamped on a
+     * packet — that was the whole stale-location incident (7/31).
+     * Future-dated fixes (clock skew) count as fresh; the server clamps.
      */
     fun isFresh(nowMillis: Long): Boolean =
         nowMillis - capturedAtMillis <= MAX_AGE_MILLIS
 
     companion object {
-        const val MAX_AGE_SECONDS = 25L
+        const val MAX_AGE_SECONDS = 30L
         const val MAX_AGE_MILLIS = MAX_AGE_SECONDS * 1000
 
         /** ee-web rejects accuracy_m > 10000; a >10 km fix is also useless. */

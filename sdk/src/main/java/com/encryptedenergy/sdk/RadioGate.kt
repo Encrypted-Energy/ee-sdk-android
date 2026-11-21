@@ -14,7 +14,7 @@ package com.encryptedenergy.sdk
  *    hovering at the threshold doesn't flap the radio.
  *  - **Dead fix stream** (nothing in the fleet did this before 0.2.0): after
  *    [NO_FIX_PAUSE_MILLIS] without a fresh fix every heard packet is a
- *    guaranteed drop (the 25 s stamp gate), so the radio burns battery for
+ *    guaranteed drop (the 30 s stamp gate), so the radio burns battery for
  *    nothing. Park it; any arriving fix reopens the gate instantly. The
  *    location provider MUST keep running while parked — it is the recovery
  *    signal.

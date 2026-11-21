@@ -24,13 +24,13 @@ class LocationFixTest {
     }
 
     @Test
-    fun freshAtExactly25s() {
-        assertTrue(fix.isFresh(fix.capturedAtMillis + 25_000))
+    fun freshAtExactly30s() {
+        assertTrue(fix.isFresh(fix.capturedAtMillis + 30_000))
     }
 
     @Test
-    fun staleBeyond25s() {
-        assertFalse(fix.isFresh(fix.capturedAtMillis + 25_001))
+    fun staleBeyond30s() {
+        assertFalse(fix.isFresh(fix.capturedAtMillis + 30_001))
     }
 
     @Test

@@ -201,7 +201,7 @@ internal class Engine(
             when {
                 eid == null -> {}
                 fix == null ->
-                    // No fix fresher than 25 s: drop, never stamp stale
+                    // No fix fresher than 30 s: drop, never stamp stale
                     // coords (the 7/31 incident, on Android from day one).
                     counters.incDroppedNoFix()
                 else -> {
