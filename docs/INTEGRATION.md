@@ -17,10 +17,14 @@ forwards them. You get paid per unique device covered per day.
 
 - minSdk 26, zero runtime dependencies (the AAR pulls in nothing but the
   Kotlin stdlib you already ship).
-- Your app already holds the scan and location grants and runs a foreground
-  service (tracker, fitness, automotive, and field-ops apps do). The SDK
-  never requests permissions and never starts a service of its own: your
+- Your app already holds the scan and location grants. The SDK never
+  requests permissions and never starts a service of its own: your
   lifecycle drives it.
+- A foreground service keeps scanning alive off-screen. If you already run
+  one (tracker, fitness, automotive, and field-ops apps do), the 2 lines go
+  there. If you don't, you add the reference service once:
+  [Earning while the app is closed](#earning-while-the-app-is-closed)
+  covers both paths.
 - Manifest: the reference set lives in the sample app's manifest and is
   quoted here. BLUETOOTH_SCAN deliberately does NOT assert neverForLocation,
   because relayed packets carry location and the declaration must match:
@@ -32,6 +36,13 @@ forwards them. You get paid per unique device covered per day.
 <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
 <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+
+<!-- The host owns the foreground service; the SDK never starts one. -->
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+<!-- API 33+: without it the FGS notification is hidden (service still runs). -->
+<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 ```
 
 Your existing FGS should declare (or add) the `location|connectedDevice`
@@ -47,7 +58,7 @@ The module has zero dependencies beyond the Kotlin stdlib, so it adds
 nothing to your dependency tree.
 
 ```
-git clone --branch 0.2.0 https://github.com/Encrypted-Energy/ee-sdk-android.git
+git clone --branch 0.2.1 https://github.com/Encrypted-Energy/ee-sdk-android.git
 cd ee-sdk-android && ./gradlew :sdk:assembleRelease
 cp sdk/build/outputs/aar/sdk-release.aar YOUR_APP/app/libs/
 ```
@@ -75,7 +86,7 @@ includeBuild("ee-sdk-android") {
 
 // app/build.gradle.kts
 dependencies {
-    implementation("com.encryptedenergy:gateway-sdk:0.2.0")
+    implementation("com.encryptedenergy:gateway-sdk:0.2.1")
 }
 ```
 
@@ -97,8 +108,79 @@ maven {
 }
 
 // app/build.gradle.kts
-implementation("com.encryptedenergy:gateway-sdk:0.2.0")
+implementation("com.encryptedenergy:gateway-sdk:0.2.1")
 ```
+
+## Earning while the app is closed
+
+Most coverage happens while the phone rides in a pocket: your app
+backgrounded, screen off, or swiped away from recents. An integration
+that only scans while your app is open leaves most of that on the table.
+
+Sustained scanning needs your process alive off screen, and on modern
+Android that means a foreground service. The SDK never starts one of its
+own, so the service is yours.
+
+### If you already run a foreground service
+
+Put the 2 configure/start lines in it, declare the
+`location|connectedDevice` service types on it, and confirm the 3
+FOREGROUND_SERVICE* permissions quoted in [Requirements](#requirements)
+are in your manifest. Done.
+
+### If you don't
+
+Copy the sample's
+[`GatewayService`](../sample/src/main/java/com/encryptedenergy/sdk/sample/GatewayService.kt)
+into your app and start it from your opt-in flow. It's about 80 lines:
+a quiet persistent notification plus the API-34-safe `startForeground`
+call, which declares `connectedDevice` only once `BLUETOOTH_SCAN` is
+granted (API 34 throws if you declare a type you don't qualify for).
+
+### Surviving swipe-away
+
+2 habits inside the service keep scanning alive after the user swipes
+your app from recents or Android reclaims the process:
+
+- Return `START_STICKY` from `onStartCommand`, so Android relaunches the
+  service after process death.
+- Call `configure()` + `start()` in `onStartCommand`, not only in your
+  Activity. The sticky relaunch reaches that line with no UI having run,
+  and `configure()` is idempotent, so the double call on a normal launch
+  costs nothing.
+
+The sample's `GatewayService` shows both. The packet queue and the token
+both survive process death (the queue is bounded on disk, the token sits
+Keystore-encrypted), so a relaunched service resumes where the old one
+stopped.
+
+### You probably don't need ACCESS_BACKGROUND_LOCATION
+
+A foreground service with the `location` type keeps GPS fixes flowing
+under the normal while-in-use grant, even with your app backgrounded.
+That covers the SDK completely.
+
+`ACCESS_BACKGROUND_LOCATION` only matters if you collect location with
+no foreground service running (geofencing callbacks, periodic jobs).
+Requesting it adds real Play review weight: a declaration form and a
+video of the user-facing feature that needs it. If the service above
+covers you, skip the permission.
+
+### What OEM battery savers do to your numbers
+
+Stock Android honors a foreground service. Many OEM builds don't:
+Xiaomi, Oppo, Vivo, Realme, and Transsion (Infinix, Tecno) ship battery
+managers that kill foreground services of backgrounded apps unless the
+user exempts the app, and some Samsung builds "put to sleep" apps unused
+for a few days. These devices dominate South Asia, Southeast Asia,
+Africa, and Latin America.
+
+If your installs skew to those devices and your backgrounded yield looks
+low, this is the usual cause. The fix is user-granted: prompt with
+`ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` or walk the user to
+unrestricted battery for your app. [dontkillmyapp.com](https://dontkillmyapp.com)
+documents the per-OEM steps. We flag it here so a quiet fleet reads as
+what it is: killed services, and a per-device setting that revives them.
 
 ## Identity: two modes
 

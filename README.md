@@ -53,11 +53,16 @@ For you:
 - minSdk 26. Zero runtime dependencies (Kotlin stdlib only: no
   androidx, no play-services).
 - Your app already holds `BLUETOOTH_SCAN` and fine/coarse location
-  grants, and runs a foreground service (tracker, fitness, automotive,
-  and field-ops apps do). The SDK never requests permissions and never
+  grants. The SDK never requests permissions and never
   starts a service of its own: without the grants it parks in
   `AWAITING_PERMISSIONS` and starts itself the moment your permission
   flow completes.
+- A foreground service keeps earning alive while the phone rides in a
+  pocket, app backgrounded or swiped away. Already run one
+  (tracker, fitness, automotive, and field-ops apps do)? The 2 lines go
+  there. If you don't, the reference service is one copy-paste:
+  [docs/INTEGRATION.md](docs/INTEGRATION.md#earning-while-the-app-is-closed)
+  covers both paths.
 - The reference manifest and foreground-service pattern ship in
   [`sample/`](sample/).
 
@@ -78,7 +83,7 @@ For you:
 3. **Install the SDK.** Build the AAR once and drop it in:
 
    ```
-   git clone --branch 0.2.0 https://github.com/Encrypted-Energy/ee-sdk-android.git
+   git clone --branch 0.2.1 https://github.com/Encrypted-Energy/ee-sdk-android.git
    cd ee-sdk-android && ./gradlew :sdk:assembleRelease
    cp sdk/build/outputs/aar/sdk-release.aar YOUR_APP/app/libs/
    ```
@@ -130,8 +135,10 @@ only grows, it never changes meaning.
 - **Your users never see a prompt from us.** You own the permission
   UX; the SDK waits behind it.
 - **It runs only where your app already runs.** No services, no
-  background modes of its own; your foreground service drives it and
-  it stops when your app stops.
+  background modes of its own; your foreground service drives it, on
+  screen or off, and it stops when that service stops. Scanning while
+  backgrounded is your service keeping the SDK alive, never the SDK
+  keeping itself alive.
 - **It protects the battery before it earns.** Scanning adapts down
   when the phone sits still off-charger, parks below 20% battery or
   when GPS has no fix (packets it can't stamp are wasted radio), then
