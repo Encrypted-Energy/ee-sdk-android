@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.1: 2026-11-21
+
+Frozen public API unchanged.
+
+- Fix staleness gate widened from 25 s to 30 s to match the ingest
+  acceptance spec (fix at most 30 s old at hear-time). Packets heard
+  with only a 25 to 30 s old fix were dropped on the phone even though
+  the network accepts them.
+
 ## 0.2.0: 2026-11-07
 
 Guest-courtesy and resilience release; frozen public API unchanged.
